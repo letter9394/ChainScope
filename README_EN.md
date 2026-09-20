@@ -1,0 +1,45 @@
+# ChainScope
+
+ChainScope is a full-stack cryptocurrency market risk dashboard built as a portfolio and learning project. It combines live market data, historical trends, news, and explainable risk indicators in one interface.
+
+## Highlights
+
+- Live Bitcoin, Ethereum, and Solana market overview
+- 30-day price history rendered with a native SVG chart
+- Transparent 0–100 score based on volatility, maximum drawdown, volume anomaly, and momentum
+- Live CoinDesk news with source links and sentiment labels
+- Optional OpenAI-compatible news analysis with an honest rule-based fallback
+- Persistent local watchlist backed by SQLite
+- Cache, retry, timeout, validation, tests, Docker, and CI configuration
+
+## Quick start on Windows
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+cd web
+pnpm install
+cd ..
+.\scripts\start-local.ps1
+```
+
+Open http://localhost:3100 for the dashboard and http://localhost:8000/docs for the API documentation.
+
+## Quality checks
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest backend\tests -q
+cd web
+pnpm typecheck
+pnpm build
+```
+
+See the [Chinese README](README.md) for architecture, API routes, environment variables, scoring methodology, and limitations.
+
+## Disclaimer
+
+This project is for educational purposes. It does not provide investment advice or execute trades.
+
+## License
+
+[MIT](LICENSE)
