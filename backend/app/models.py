@@ -70,6 +70,17 @@ class NewsResponse(BaseModel):
     notice: str
 
 
+class NewsTranslationRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=300)
+    summary: str = Field(min_length=1, max_length=500)
+
+
+class NewsTranslationResponse(BaseModel):
+    title_zh: str
+    summary_zh: str
+    provider: str
+
+
 class WatchlistItem(BaseModel):
     coin_id: str
     symbol: str

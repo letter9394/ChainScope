@@ -2,17 +2,17 @@
 
 [English](README_EN.md) · [学习笔记](docs/LEARNING_NOTES.md) · [贡献指南](CONTRIBUTING.md)
 
-ChainScope 是一个面向学习与作品集展示的 Web3 智能市场分析与风险预警平台。它把实时行情、历史走势、新闻和可解释风险指标放在同一张仪表盘中，帮助用户理解资产为什么被判断为低、中或高风险，而不是只给出一个缺少依据的分数。当前版本支持自定义风险阈值、自动检查、页面提醒和可追溯的预警事件；站外消息推送和链上指标属于后续迭代。
+ChainScope 是一个面向学习与作品集展示的 Web3 智能市场分析与风险预警平台。它把加密资产与黄金现货行情、专业 K 线、中英双语新闻和可解释风险指标放在同一张仪表盘中，帮助用户理解资产为什么被判断为低、中或高风险，而不是只给出一个缺少依据的分数。当前版本支持自定义风险阈值、自动检查、页面提醒和可追溯的预警事件；站外消息推送和链上指标属于后续迭代。
 
 > 当前版本是可独立运行的 MVP，不连接交易账户，不执行买卖，也不构成投资建议。
 
 ## 项目亮点
 
-- 实时展示 BTC、ETH、SOL 的价格、24 小时涨跌和交易量
-- 绘制 30 天价格趋势图，支持币种切换
+- 实时展示 BTC、ETH、SOL 与 XAU 现货黄金行情
+- 点击任一资产即可切换 TradingView K 线，支持 1/5/15/30 分钟、1/4 小时、日线和周线
 - 根据波动率、最大回撤、成交量异常和短期动量计算 0–100 风险分
 - 每项风险指标都有权重、数值和中文解释，便于追溯评分依据
-- 聚合 CoinDesk 新闻并提供来源链接与情绪标签
+- 聚合 CoinDesk 新闻并提供来源链接、情绪标签和按需中英翻译
 - 支持 OpenAI 兼容接口；未配置密钥时自动使用规则分析并明确标注
 - 使用 SQLite 保存本地自选列表，刷新页面后仍然存在
 - 自定义“风险分”或“24 小时涨跌幅”阈值，每 60 秒自动检查
@@ -24,23 +24,24 @@ ChainScope 是一个面向学习与作品集展示的 Web3 智能市场分析与
 
 ```text
 浏览器 / Next.js 仪表盘（3100）
-              |
-              v
-     FastAPI 服务（8000）
-       /       |        \
- CoinGecko   CoinDesk      SQLite
- 行情/历史    RSS 新闻   自选/规则/事件
-       |
-  缓存 + 重试 + 风险评分
+   |       |             |
+   |   TradingView       | K线
+   v                     v
+FastAPI 服务（8000）   浏览器嵌入图表
+ /      |       |       \
+CoinGecko Gold API  CoinDesk  SQLite
+加密行情  黄金现价  RSS新闻  自选/规则/事件
+                  |
+             MyMemory 按需翻译
 ```
 
 ## 技术栈
 
 | 层级 | 技术 |
 | --- | --- |
-| 前端 | Next.js 15、React 19、TypeScript、原生 SVG 图表 |
+| 前端 | Next.js 15、React 19、TypeScript、TradingView Advanced Chart |
 | 后端 | Python 3、FastAPI、Pydantic、HTTPX |
-| 数据 | CoinGecko Public API、CoinDesk RSS、SQLite |
+| 数据 | CoinGecko Public API、Gold API、CoinDesk RSS、MyMemory、SQLite |
 | 测试 | Pytest、FastAPI TestClient、TypeScript typecheck |
 | 工程化 | Docker Compose、GitHub Actions、PowerShell 启停脚本 |
 
@@ -102,6 +103,9 @@ Render 免费 Web Service 在闲置约 15 分钟后会休眠，首次唤醒可�
 
 ```env
 COINGECKO_DEMO_API_KEY=
+GOLD_API_URL=https://api.gold-api.com/price/XAU
+TRANSLATION_API_URL=https://api.mymemory.translated.net/get
+TRANSLATION_CACHE_SECONDS=86400
 AI_API_KEY=
 AI_API_BASE_URL=https://api.openai.com/v1
 AI_MODEL=gpt-4.1-mini
@@ -127,6 +131,7 @@ pnpm build
 | GET | `/api/coins/{coin_id}/history` | 历史价格和成交量 |
 | GET | `/api/coins/{coin_id}/risk` | 可解释风险报告 |
 | GET | `/api/news` | 新闻与情绪分析 |
+| POST | `/api/news/translate` | 将一条英文新闻按需翻译为中文 |
 | GET / POST / DELETE | `/api/watchlist` | 查询、添加和删除自选资产 |
 | GET / POST / DELETE | `/api/alerts/rules` | 查询、创建和删除阈值规则 |
 | POST | `/api/alerts/evaluate` | 用最新数据检查全部规则 |
@@ -149,7 +154,10 @@ ChainScope/
 
 - 免费公共数据可能有延迟、限流或短暂不可用
 - 新闻情绪分析主要用于作品集演示，不能替代专业研究
-- 当前仅覆盖 BTC、ETH、SOL，预警仅在页面打开时由前端每 60 秒触发检查
+- 当前行情覆盖 BTC、ETH、SOL、XAU；XAU 暂不套用加密货币风险评分，也不参与阈值预警
+- TradingView 图表依赖其外部服务和用户当前网络；不同报价商的价格可能存在轻微差异
+- 新闻翻译由机器生成并按需调用第三方服务，应以英文原文为准
+- 预警仅在页面打开时由前端每 60 秒触发检查
 - 可进一步加入后台定时任务、邮件/Telegram 推送、回测、WebSocket 实时流与 PostgreSQL
 
 ## License

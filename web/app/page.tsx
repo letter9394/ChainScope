@@ -5,8 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCenter } from "@/components/AlertCenter";
 import { MarketCard } from "@/components/MarketCard";
 import { NewsPanel } from "@/components/NewsPanel";
-import { PriceChart } from "@/components/PriceChart";
 import { RiskPanel } from "@/components/RiskPanel";
+import { TradingViewChart } from "@/components/TradingViewChart";
 import {
   addToWatchlist,
   acknowledgeAlertEvent,
@@ -15,7 +15,6 @@ import {
   evaluateAlerts,
   getAlertEvents,
   getAlertRules,
-  getHistory,
   getMarkets,
   getNews,
   getRisk,
@@ -26,7 +25,6 @@ import type {
   AlertEvent,
   AlertRule,
   AlertRuleInput,
-  HistoryPoint,
   MarketCoin,
   NewsResponse,
   RiskAssessment,
@@ -41,7 +39,6 @@ const priceCurrency = new Intl.NumberFormat("en-US", {
 export default function Home() {
   const [markets, setMarkets] = useState<MarketCoin[]>([]);
   const [selectedId, setSelectedId] = useState("bitcoin");
-  const [history, setHistory] = useState<HistoryPoint[]>([]);
   const [risk, setRisk] = useState<RiskAssessment | null>(null);
   const [news, setNews] = useState<NewsResponse | null>(null);
   const [watchlist, setWatchlist] = useState<string[]>([]);
@@ -177,13 +174,14 @@ export default function Home() {
     const controller = new AbortController();
     setLoadingDetail(true);
     setRisk(null);
-    Promise.all([
-      getHistory(selectedId, 30, controller.signal),
-      getRisk(selectedId, 30, controller.signal),
-      getNews(selectedId, 6, controller.signal),
-    ])
-      .then(([historyResult, riskResult, newsResult]) => {
-        setHistory(historyResult);
+    const detailRequest = selectedId === "gold"
+      ? Promise.all([Promise.resolve(null), getNews(selectedId, 6, controller.signal)])
+      : Promise.all([
+          getRisk(selectedId, 30, controller.signal),
+          getNews(selectedId, 6, controller.signal),
+        ]);
+    detailRequest
+      .then(([riskResult, newsResult]) => {
         setRisk(riskResult);
         setNews(newsResult);
         setError(null);
@@ -212,16 +210,16 @@ export default function Home() {
 
       <section className="hero" id="top">
         <div>
-          <p className="kicker">WEB3 INTELLIGENCE · RISK ALERTS</p>
+          <p className="kicker">DIGITAL ASSETS · GOLD · RISK ALERTS</p>
           <h1>看见波动，也看懂风险。</h1>
           <p className="hero-copy">
-            ChainScope Web3智能市场分析与风险预警平台，将实时行情转化为可解释的风险信号。
-            每一个分数都有数据依据，适合研究、学习与市场观察。
+            ChainScope 将加密资产与黄金行情、专业 K 线、新闻情绪和可解释风险信号集中在一个界面。
+            支持从分钟线到周线的多周期观察，适合研究、学习与市场跟踪。
           </p>
         </div>
         <div className="hero-meta">
-          <span>数据源</span><strong>CoinGecko</strong>
-          <span>分析周期</span><strong>30 天</strong>
+          <span>行情来源</span><strong>CoinGecko · Gold API</strong>
+          <span>K线周期</span><strong>1 分钟 — 周线</strong>
           <span>自动刷新</span><strong>60 秒</strong>
         </div>
       </section>
@@ -246,7 +244,7 @@ export default function Home() {
 
       <section className="market-grid" aria-label="核心资产行情">
         {loadingMarkets && markets.length === 0
-          ? [0, 1, 2].map((item) => <div className="market-card skeleton-card" key={item} />)
+          ? [0, 1, 2, 3].map((item) => <div className="market-card skeleton-card" key={item} />)
           : markets.map((coin) => (
               <MarketCard
                 key={coin.id}
@@ -261,8 +259,8 @@ export default function Home() {
         <div className="panel chart-panel">
           <div className="panel-header">
             <div>
-              <span className="panel-eyebrow">30 DAY PRICE HISTORY</span>
-              <h2>{selectedCoin?.name ?? "市场"} 价格走势</h2>
+              <span className="panel-eyebrow">MULTI-TIMEFRAME CANDLESTICK</span>
+              <h2>{selectedCoin?.name ?? "市场"} K线图</h2>
             </div>
             {selectedCoin ? (
               <div className="current-quote">
@@ -279,13 +277,9 @@ export default function Home() {
               </div>
             ) : null}
           </div>
-          {loadingDetail ? (
-            <div className="chart-loading">正在加载历史数据…</div>
-          ) : (
-            <PriceChart history={history} symbol={selectedCoin?.symbol ?? "Asset"} />
-          )}
+          <TradingViewChart assetId={selectedId} symbol={selectedCoin?.symbol ?? "Asset"} />
         </div>
-        <RiskPanel risk={risk} loading={loadingDetail} />
+        <RiskPanel risk={risk} loading={loadingDetail} unavailable={selectedId === "gold"} />
       </section>
 
       <AlertCenter

@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.models import WatchlistItem
-from app.services.market import SUPPORTED_COINS
+from app.services.market import SUPPORTED_ASSETS
 
 
 class WatchlistRepository:
@@ -41,11 +41,11 @@ class WatchlistRepository:
         return [WatchlistItem(**dict(row)) for row in rows]
 
     def add(self, coin_id: str) -> WatchlistItem:
-        if coin_id not in SUPPORTED_COINS:
+        if coin_id not in SUPPORTED_ASSETS:
             raise ValueError(f"Unsupported coin: {coin_id}")
         item = WatchlistItem(
             coin_id=coin_id,
-            symbol=SUPPORTED_COINS[coin_id],
+            symbol=SUPPORTED_ASSETS[coin_id],
             added_at=datetime.now(UTC).isoformat(),
         )
         with self._lock, self._connect() as connection:
@@ -65,4 +65,3 @@ class WatchlistRepository:
         with self._lock, self._connect() as connection:
             cursor = connection.execute("DELETE FROM watchlist WHERE coin_id = ?", (coin_id,))
         return cursor.rowcount > 0
-

@@ -14,12 +14,14 @@ from app.models import (
     HistoryPoint,
     MarketCoin,
     NewsResponse,
+    NewsTranslationRequest,
+    NewsTranslationResponse,
     RiskAssessment,
     WatchlistItem,
 )
 from app.services.alerts import AlertRepository, evaluate_alert_rules
 from app.services.market import CoinGeckoClient, MarketDataError, SUPPORTED_COINS
-from app.services.news import get_news
+from app.services.news import get_news, translate_news
 from app.services.risk import assess_risk
 from app.services.watchlist import WatchlistRepository
 
@@ -59,7 +61,7 @@ async def health(settings: Settings = Depends(get_settings)) -> HealthResponse:
     return HealthResponse(
         status="ok",
         environment=settings.chain_scope_env,
-        market_provider="CoinGecko",
+        market_provider="CoinGecko + Gold API",
     )
 
 
@@ -124,6 +126,17 @@ async def news(
         return await get_news(settings=settings, coin_id=coin_id, limit=limit)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.post("/api/news/translate", response_model=NewsTranslationResponse, tags=["news"])
+async def translate_news_article(
+    payload: NewsTranslationRequest,
+    settings: Settings = Depends(get_settings),
+) -> NewsTranslationResponse:
+    try:
+        return await translate_news(payload.title, payload.summary, settings)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 

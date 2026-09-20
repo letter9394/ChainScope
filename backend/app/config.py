@@ -15,11 +15,14 @@ class Settings(BaseSettings):
     chain_scope_env: str = "development"
     coingecko_base_url: str = "https://api.coingecko.com/api/v3"
     coingecko_demo_api_key: str | None = None
+    gold_api_url: str = "https://api.gold-api.com/price/XAU"
     market_cache_seconds: int = 60
     history_cache_seconds: int = 300
     database_path: str = ".local/chainscope.db"
     news_rss_url: str = "https://www.coindesk.com/arc/outboundfeeds/rss/"
     news_cache_seconds: int = 300
+    translation_api_url: str = "https://api.mymemory.translated.net/get"
+    translation_cache_seconds: int = 86_400
     request_timeout_seconds: float = 10.0
     ai_api_base_url: str | None = None
     ai_api_key: str | None = None

@@ -6,6 +6,7 @@ import type {
   HistoryPoint,
   MarketCoin,
   NewsResponse,
+  NewsTranslation,
   RiskAssessment,
   WatchlistItem,
 } from "./types";
@@ -60,6 +61,13 @@ export const getRisk = (coinId: string, days = 30, signal?: AbortSignal) =>
 
 export const getNews = (coinId: string, limit = 6, signal?: AbortSignal) =>
   apiRequest<NewsResponse>(`/api/news?coin_id=${coinId}&limit=${limit}`, signal);
+
+export const translateNews = (title: string, summary: string) =>
+  apiRequest<NewsTranslation>("/api/news/translate", undefined, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, summary }),
+  });
 
 export const getWatchlist = (signal?: AbortSignal) =>
   apiRequest<WatchlistItem[]>("/api/watchlist", signal);

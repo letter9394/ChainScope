@@ -8,9 +8,17 @@ The browser is responsible for interaction and visualization. FastAPI owns exter
 
 1. The Next.js page requests `/api/markets` from FastAPI.
 2. FastAPI checks its short-lived cache.
-3. On a cache miss, the CoinGecko client requests fresh market data.
+3. On a cache miss, CoinGecko supplies crypto quotes and Gold API supplies the XAU spot quote.
 4. The response is validated with Pydantic models.
 5. The browser renders the normalized result.
+
+## Why TradingView is embedded in the browser
+
+The backend normalizes the current quotes used by ChainScope, while TradingView specializes in interactive charting and interval changes. Keeping the chart as a client-side embed avoids storing a large intraday candle history and demonstrates how to integrate a focused third-party component. The app still owns the asset selector and the eight requested interval controls, which map to TradingView symbols and intervals.
+
+## Why news translation is on demand
+
+Translation is triggered only when a user asks for it, instead of translating every article during each news refresh. This lowers latency and third-party usage, and translated results are cached for 24 hours. The UI keeps a link to the English original because machine translation can lose financial nuance.
 
 ## Why the risk score is rule based
 
@@ -28,4 +36,6 @@ Each rule stores whether it is currently on the triggered side of the threshold.
 - What happens when CoinGecko is unavailable?
 - Why is the score educational rather than investment advice?
 - Why should an alert trigger on a state transition instead of on every polling cycle?
+- Why is an embedded chart useful, and what dependency risk does it introduce?
+- Why should translation be lazy and cached?
 - How would Redis replace the in-memory cache in a multi-server deployment?

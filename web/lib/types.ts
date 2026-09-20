@@ -61,6 +61,12 @@ export interface NewsResponse {
   notice: string;
 }
 
+export interface NewsTranslation {
+  title_zh: string;
+  summary_zh: string;
+  provider: string;
+}
+
 export interface WatchlistItem {
   coin_id: string;
   symbol: string;

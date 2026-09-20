@@ -13,6 +13,7 @@ SUPPORTED_COINS: dict[str, str] = {
     "ethereum": "ETH",
     "solana": "SOL",
 }
+SUPPORTED_ASSETS: dict[str, str] = {**SUPPORTED_COINS, "gold": "XAU"}
 
 
 class MarketDataError(RuntimeError):
@@ -83,8 +84,34 @@ class CoinGeckoClient:
             for item in payload
             if item.get("id") in SUPPORTED_COINS and item.get("current_price") is not None
         ]
+        gold_market = await self._get_gold_market()
+        if gold_market is not None:
+            markets.append(gold_market)
         cache.set(cache_key, markets, self.settings.market_cache_seconds)
         return markets
+
+    async def _get_gold_market(self) -> MarketCoin | None:
+        try:
+            async with httpx.AsyncClient(
+                timeout=self.settings.request_timeout_seconds,
+                headers={"Accept": "application/json", "User-Agent": "ChainScope/0.2"},
+            ) as client:
+                response = await client.get(self.settings.gold_api_url)
+                response.raise_for_status()
+                payload = response.json()
+            price = float(payload["price"])
+            if price <= 0:
+                return None
+            return MarketCoin(
+                id="gold",
+                symbol="XAU",
+                name="Gold Spot",
+                current_price=price,
+                last_updated=payload.get("updatedAt"),
+            )
+        except (httpx.HTTPError, KeyError, TypeError, ValueError):
+            # Gold is an additional feed; crypto quotes should stay available if it is down.
+            return None
 
     async def get_history(self, coin_id: str, days: int) -> list[HistoryPoint]:
         if coin_id not in SUPPORTED_COINS:
@@ -117,4 +144,3 @@ class CoinGeckoClient:
 
         cache.set(cache_key, history, self.settings.history_cache_seconds)
         return history
-

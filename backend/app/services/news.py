@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import html
 import json
@@ -10,15 +11,16 @@ from email.utils import parsedate_to_datetime
 import httpx
 
 from app.config import Settings
-from app.models import NewsArticle, NewsResponse
+from app.models import NewsArticle, NewsResponse, NewsTranslationResponse
 from app.services.cache import cache
-from app.services.market import SUPPORTED_COINS
+from app.services.market import SUPPORTED_ASSETS
 
 
 COIN_KEYWORDS: dict[str, tuple[str, ...]] = {
     "bitcoin": ("bitcoin", "btc"),
     "ethereum": ("ethereum", "ether", "eth"),
     "solana": ("solana", "sol"),
+    "gold": ("gold", "xau", "bullion"),
 }
 
 POSITIVE_TERMS = {
@@ -97,7 +99,7 @@ def analyze_with_rules(article: RawNews) -> NewsArticle:
         sentiment, label = "neutral", "中性"
 
     related_symbols = [
-        SUPPORTED_COINS[coin_id]
+        SUPPORTED_ASSETS[coin_id]
         for coin_id, keywords in COIN_KEYWORDS.items()
         if any(re.search(rf"\b{re.escape(keyword)}\b", combined) for keyword in keywords)
     ]
@@ -178,7 +180,7 @@ async def get_news(
     coin_id: str | None = None,
     limit: int = 6,
 ) -> NewsResponse:
-    if coin_id is not None and coin_id not in SUPPORTED_COINS:
+    if coin_id is not None and coin_id not in COIN_KEYWORDS:
         raise ValueError(f"Unsupported coin: {coin_id}")
 
     cache_key = f"news:{coin_id or 'all'}:{limit}:{bool(settings.ai_api_key)}"
@@ -221,3 +223,42 @@ async def get_news(
     cache.set(cache_key, result, settings.news_cache_seconds)
     return result
 
+
+async def _translate_text(text: str, settings: Settings) -> str:
+    cache_key = f"translation:en-zh:{hashlib.sha256(text.encode('utf-8')).hexdigest()}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
+            response = await client.get(
+                settings.translation_api_url,
+                params={"q": text, "langpair": "en|zh-CN", "mt": "1"},
+            )
+            response.raise_for_status()
+            payload = response.json()
+        translated = html.unescape(str(payload["responseData"]["translatedText"])).strip()
+        if not translated:
+            raise ValueError("Empty translation")
+    except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
+        raise RuntimeError("Translation service is temporarily unavailable") from exc
+
+    cache.set(cache_key, translated, settings.translation_cache_seconds)
+    return translated
+
+
+async def translate_news(
+    title: str,
+    summary: str,
+    settings: Settings,
+) -> NewsTranslationResponse:
+    title_zh, summary_zh = await asyncio.gather(
+        _translate_text(title, settings),
+        _translate_text(summary, settings),
+    )
+    return NewsTranslationResponse(
+        title_zh=title_zh,
+        summary_zh=summary_zh,
+        provider="MyMemory",
+    )

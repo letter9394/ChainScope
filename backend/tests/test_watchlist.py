@@ -37,3 +37,9 @@ def test_remove_watchlist_item(repository: WatchlistRepository) -> None:
 def test_rejects_unknown_coin(repository: WatchlistRepository) -> None:
     with pytest.raises(ValueError, match="Unsupported coin"):
         repository.add("unknown")
+
+
+def test_add_gold_to_watchlist(repository: WatchlistRepository) -> None:
+    item = repository.add("gold")
+    assert item.symbol == "XAU"
+    assert repository.list_items()[0].coin_id == "gold"
