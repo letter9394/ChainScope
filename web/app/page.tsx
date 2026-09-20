@@ -118,18 +118,18 @@ export default function Home() {
           <span>ChainScope</span>
         </a>
         <div className="live-status"><i /> LIVE MARKET DATA</div>
-        <a className="github-link" href="https://github.com" target="_blank" rel="noreferrer">
+        <a className="github-link" href="https://github.com/letter9394/ChainScope" target="_blank" rel="noreferrer">
           GitHub ↗
         </a>
       </header>
 
       <section className="hero" id="top">
         <div>
-          <p className="kicker">CRYPTO MARKET INTELLIGENCE</p>
+          <p className="kicker">WEB3 INTELLIGENCE · RISK ALERTS</p>
           <h1>看见波动，也看懂风险。</h1>
           <p className="hero-copy">
-            ChainScope 将实时行情转化为可解释的风险信号。每一个分数都有数据依据，
-            适合研究、学习与市场观察。
+            ChainScope Web3智能市场分析与风险预警平台，将实时行情转化为可解释的风险信号。
+            每一个分数都有数据依据，适合研究、学习与市场观察。
           </p>
         </div>
         <div className="hero-meta">
@@ -204,7 +204,7 @@ export default function Home() {
       </section>
 
       <footer>
-        <div><strong>ChainScope</strong><span>Explainable crypto risk intelligence.</span></div>
+        <div><strong>ChainScope</strong><span>Web3智能市场分析与风险预警平台</span></div>
         <p>仅用于学习和市场研究，不构成投资建议。</p>
       </footer>
     </main>

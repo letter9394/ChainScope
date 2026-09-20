@@ -1,6 +1,6 @@
-# ChainScope
+# ChainScope — Web3 Intelligent Market Analysis and Risk Alert Platform
 
-ChainScope is a full-stack cryptocurrency market risk dashboard built as a portfolio and learning project. It combines live market data, historical trends, news, and explainable risk indicators in one interface.
+ChainScope is a full-stack Web3 market intelligence and risk alert platform built as a portfolio and learning project. It combines live market data, historical trends, news, and explainable risk indicators in one interface. The current MVP provides in-dashboard risk monitoring; push notifications and on-chain indicators are planned iterations.
 
 ## Highlights
 
