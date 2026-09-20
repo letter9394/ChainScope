@@ -74,3 +74,45 @@ class WatchlistItem(BaseModel):
     coin_id: str
     symbol: str
     added_at: str
+
+
+AlertMetric = Literal["risk_score", "price_change_24h"]
+AlertOperator = Literal["gte", "lte"]
+
+
+class AlertRuleCreate(BaseModel):
+    coin_id: str
+    metric: AlertMetric
+    operator: AlertOperator
+    threshold: float = Field(ge=-100, le=100)
+
+
+class AlertRule(AlertRuleCreate):
+    id: int
+    symbol: str
+    enabled: bool
+    is_triggered: bool
+    created_at: str
+    last_triggered_at: str | None = None
+
+
+class AlertEvent(BaseModel):
+    id: int
+    rule_id: int
+    coin_id: str
+    symbol: str
+    metric: AlertMetric
+    operator: AlertOperator
+    threshold: float
+    observed_value: float
+    severity: Literal["warning", "critical"]
+    title: str
+    message: str
+    triggered_at: str
+    acknowledged_at: str | None = None
+
+
+class AlertEvaluationResponse(BaseModel):
+    evaluated_rules: int
+    triggered_events: list[AlertEvent]
+    active_events: list[AlertEvent]

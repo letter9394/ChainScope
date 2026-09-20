@@ -1,6 +1,6 @@
 # ChainScope — Web3 Intelligent Market Analysis and Risk Alert Platform
 
-ChainScope is a full-stack Web3 market intelligence and risk alert platform built as a portfolio and learning project. It combines live market data, historical trends, news, and explainable risk indicators in one interface. The current MVP provides in-dashboard risk monitoring; push notifications and on-chain indicators are planned iterations.
+ChainScope is a full-stack Web3 market intelligence and risk alert platform built as a portfolio and learning project. It combines live market data, historical trends, news, and explainable risk indicators in one interface. The current version supports user-defined thresholds, automated checks, in-page notifications, and a persistent alert event history; external push notifications and on-chain indicators are planned iterations.
 
 ## Highlights
 
@@ -10,6 +10,8 @@ ChainScope is a full-stack Web3 market intelligence and risk alert platform buil
 - Live CoinDesk news with source links and sentiment labels
 - Optional OpenAI-compatible news analysis with an honest rule-based fallback
 - Persistent local watchlist backed by SQLite
+- Threshold rules for risk score and 24-hour price change, checked every 60 seconds
+- Transition-based alert events with acknowledgement and history, without repeated notification spam
 - Cache, retry, timeout, validation, tests, Docker, and CI configuration
 
 ## Quick start on Windows
@@ -24,6 +26,10 @@ cd ..
 ```
 
 Open http://localhost:3100 for the dashboard and http://localhost:8000/docs for the API documentation.
+
+## Public deployment
+
+The root `render.yaml` and multi-stage `Dockerfile` deploy the exported Next.js frontend and FastAPI backend as one same-origin Render service. On Render's free tier, the service sleeps when idle and its SQLite data is ephemeral. Use PostgreSQL or a paid persistent disk for production persistence.
 
 ## Quality checks
 

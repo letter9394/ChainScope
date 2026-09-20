@@ -2,7 +2,7 @@
 
 [English](README_EN.md) · [学习笔记](docs/LEARNING_NOTES.md) · [贡献指南](CONTRIBUTING.md)
 
-ChainScope 是一个面向学习与作品集展示的 Web3 智能市场分析与风险预警平台。它把实时行情、历史走势、新闻和可解释风险指标放在同一张仪表盘中，帮助用户理解资产为什么被判断为低、中或高风险，而不是只给出一个缺少依据的分数。当前 MVP 通过持续刷新和风险等级变化实现页面内预警，消息推送和链上指标属于后续迭代。
+ChainScope 是一个面向学习与作品集展示的 Web3 智能市场分析与风险预警平台。它把实时行情、历史走势、新闻和可解释风险指标放在同一张仪表盘中，帮助用户理解资产为什么被判断为低、中或高风险，而不是只给出一个缺少依据的分数。当前版本支持自定义风险阈值、自动检查、页面提醒和可追溯的预警事件；站外消息推送和链上指标属于后续迭代。
 
 > 当前版本是可独立运行的 MVP，不连接交易账户，不执行买卖，也不构成投资建议。
 
@@ -15,6 +15,8 @@ ChainScope 是一个面向学习与作品集展示的 Web3 智能市场分析与
 - 聚合 CoinDesk 新闻并提供来源链接与情绪标签
 - 支持 OpenAI 兼容接口；未配置密钥时自动使用规则分析并明确标注
 - 使用 SQLite 保存本地自选列表，刷新页面后仍然存在
+- 自定义“风险分”或“24 小时涨跌幅”阈值，每 60 秒自动检查
+- 仅在安全状态首次越线时生成事件，避免重复通知；支持确认和历史追溯
 - 对上游接口提供缓存、超时、重试和友好错误处理
 - 提供自动化测试、Docker 配置和 GitHub Actions 持续集成
 
@@ -26,8 +28,8 @@ ChainScope 是一个面向学习与作品集展示的 Web3 智能市场分析与
               v
      FastAPI 服务（8000）
        /       |        \
- CoinGecko   CoinDesk   SQLite
- 行情/历史    RSS 新闻   自选列表
+ CoinGecko   CoinDesk      SQLite
+ 行情/历史    RSS 新闻   自选/规则/事件
        |
   缓存 + 重试 + 风险评分
 ```
@@ -88,6 +90,12 @@ cd ..
 docker compose up --build
 ```
 
+## 公网部署
+
+仓库根目录提供 `render.yaml` 和一体化 `Dockerfile`。部署时，前端会导出为静态页面并由 FastAPI 同域提供，因此只有一个公开网址，不需要额外配置跨域地址。将 GitHub 仓库作为 Render Blueprint 导入即可。
+
+Render 免费 Web Service 在闲置约 15 分钟后会休眠，首次唤醒可能需要约一分钟；免费实例的本地文件是临时的，所以自选、规则和事件会在服务重启或重新部署后清空。正式生产环境应改用 PostgreSQL，或升级服务并挂载持久磁盘。
+
 ## 可选环境变量
 
 后端默认不需要 API Key 即可运行。复制 `backend/.env.example` 为 `backend/.env` 可修改配置：
@@ -120,6 +128,10 @@ pnpm build
 | GET | `/api/coins/{coin_id}/risk` | 可解释风险报告 |
 | GET | `/api/news` | 新闻与情绪分析 |
 | GET / POST / DELETE | `/api/watchlist` | 查询、添加和删除自选资产 |
+| GET / POST / DELETE | `/api/alerts/rules` | 查询、创建和删除阈值规则 |
+| POST | `/api/alerts/evaluate` | 用最新数据检查全部规则 |
+| GET | `/api/alerts/events` | 查询预警事件记录 |
+| POST | `/api/alerts/events/{event_id}/acknowledge` | 确认一条预警事件 |
 
 ## 目录结构
 
@@ -137,8 +149,8 @@ ChainScope/
 
 - 免费公共数据可能有延迟、限流或短暂不可用
 - 新闻情绪分析主要用于作品集演示，不能替代专业研究
-- 当前仅覆盖 BTC、ETH、SOL，后续可增加搜索、告警和用户系统
-- 可进一步加入回测、WebSocket 实时流、PostgreSQL 与云端部署
+- 当前仅覆盖 BTC、ETH、SOL，预警仅在页面打开时由前端每 60 秒触发检查
+- 可进一步加入后台定时任务、邮件/Telegram 推送、回测、WebSocket 实时流与 PostgreSQL
 
 ## License
 

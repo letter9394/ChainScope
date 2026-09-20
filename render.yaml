@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: chainscope-web3
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: CHAIN_SCOPE_ENV
+        value: production
+      - key: DATABASE_PATH
+        value: /tmp/chainscope/chainscope.db
+      - key: STATIC_DIR
+        value: /app/static

@@ -66,3 +66,44 @@ export interface WatchlistItem {
   symbol: string;
   added_at: string;
 }
+
+export type AlertMetric = "risk_score" | "price_change_24h";
+export type AlertOperator = "gte" | "lte";
+
+export interface AlertRuleInput {
+  coin_id: string;
+  metric: AlertMetric;
+  operator: AlertOperator;
+  threshold: number;
+}
+
+export interface AlertRule extends AlertRuleInput {
+  id: number;
+  symbol: string;
+  enabled: boolean;
+  is_triggered: boolean;
+  created_at: string;
+  last_triggered_at: string | null;
+}
+
+export interface AlertEvent {
+  id: number;
+  rule_id: number;
+  coin_id: string;
+  symbol: string;
+  metric: AlertMetric;
+  operator: AlertOperator;
+  threshold: number;
+  observed_value: number;
+  severity: "warning" | "critical";
+  title: string;
+  message: string;
+  triggered_at: string;
+  acknowledged_at: string | null;
+}
+
+export interface AlertEvaluationResponse {
+  evaluated_rules: number;
+  triggered_events: AlertEvent[];
+  active_events: AlertEvent[];
+}

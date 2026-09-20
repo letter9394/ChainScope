@@ -1,0 +1,11 @@
+.git
+.github
+.venv
+.local
+.tools
+.pytest_cache
+.pytest-temp*
+web/.next
+web/node_modules
+**/__pycache__
+*.log

@@ -1,8 +1,23 @@
+import os
+
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.config import Settings, get_settings
-from app.models import HealthResponse, HistoryPoint, MarketCoin, NewsResponse, RiskAssessment, WatchlistItem
+from app.models import (
+    AlertEvaluationResponse,
+    AlertEvent,
+    AlertRule,
+    AlertRuleCreate,
+    HealthResponse,
+    HistoryPoint,
+    MarketCoin,
+    NewsResponse,
+    RiskAssessment,
+    WatchlistItem,
+)
+from app.services.alerts import AlertRepository, evaluate_alert_rules
 from app.services.market import CoinGeckoClient, MarketDataError, SUPPORTED_COINS
 from app.services.news import get_news
 from app.services.risk import assess_risk
@@ -33,6 +48,10 @@ def get_market_client(settings: Settings = Depends(get_settings)) -> CoinGeckoCl
 
 def get_watchlist_repository(settings: Settings = Depends(get_settings)) -> WatchlistRepository:
     return WatchlistRepository(settings.database_path)
+
+
+def get_alert_repository(settings: Settings = Depends(get_settings)) -> AlertRepository:
+    return AlertRepository(settings.database_path)
 
 
 @app.get("/api/health", response_model=HealthResponse, tags=["system"])
@@ -133,3 +152,70 @@ async def remove_watchlist(
     repository: WatchlistRepository = Depends(get_watchlist_repository),
 ) -> None:
     repository.remove(coin_id)
+
+
+@app.get("/api/alerts/rules", response_model=list[AlertRule], tags=["alerts"])
+async def list_alert_rules(
+    repository: AlertRepository = Depends(get_alert_repository),
+) -> list[AlertRule]:
+    return repository.list_rules()
+
+
+@app.post("/api/alerts/rules", response_model=AlertRule, status_code=201, tags=["alerts"])
+async def create_alert_rule(
+    payload: AlertRuleCreate,
+    repository: AlertRepository = Depends(get_alert_repository),
+) -> AlertRule:
+    try:
+        return repository.add_rule(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.delete("/api/alerts/rules/{rule_id}", status_code=204, tags=["alerts"])
+async def remove_alert_rule(
+    rule_id: int,
+    repository: AlertRepository = Depends(get_alert_repository),
+) -> None:
+    if not repository.remove_rule(rule_id):
+        raise HTTPException(status_code=404, detail="Alert rule not found")
+
+
+@app.get("/api/alerts/events", response_model=list[AlertEvent], tags=["alerts"])
+async def list_alert_events(
+    unacknowledged_only: bool = Query(default=False),
+    limit: int = Query(default=50, ge=1, le=100),
+    repository: AlertRepository = Depends(get_alert_repository),
+) -> list[AlertEvent]:
+    return repository.list_events(unacknowledged_only=unacknowledged_only, limit=limit)
+
+
+@app.post(
+    "/api/alerts/events/{event_id}/acknowledge",
+    response_model=AlertEvent,
+    tags=["alerts"],
+)
+async def acknowledge_alert_event(
+    event_id: int,
+    repository: AlertRepository = Depends(get_alert_repository),
+) -> AlertEvent:
+    event = repository.acknowledge_event(event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Alert event not found")
+    return event
+
+
+@app.post("/api/alerts/evaluate", response_model=AlertEvaluationResponse, tags=["alerts"])
+async def evaluate_alerts(
+    repository: AlertRepository = Depends(get_alert_repository),
+    client: CoinGeckoClient = Depends(get_market_client),
+) -> AlertEvaluationResponse:
+    try:
+        return await evaluate_alert_rules(repository, client)
+    except MarketDataError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+static_directory = os.getenv("STATIC_DIR")
+if static_directory:
+    app.mount("/", StaticFiles(directory=static_directory, html=True), name="web")

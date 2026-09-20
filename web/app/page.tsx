@@ -2,12 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { AlertCenter } from "@/components/AlertCenter";
 import { MarketCard } from "@/components/MarketCard";
 import { NewsPanel } from "@/components/NewsPanel";
 import { PriceChart } from "@/components/PriceChart";
 import { RiskPanel } from "@/components/RiskPanel";
 import {
   addToWatchlist,
+  acknowledgeAlertEvent,
+  createAlertRule,
+  deleteAlertRule,
+  evaluateAlerts,
+  getAlertEvents,
+  getAlertRules,
   getHistory,
   getMarkets,
   getNews,
@@ -15,7 +22,15 @@ import {
   getWatchlist,
   removeFromWatchlist,
 } from "@/lib/api";
-import type { HistoryPoint, MarketCoin, NewsResponse, RiskAssessment } from "@/lib/types";
+import type {
+  AlertEvent,
+  AlertRule,
+  AlertRuleInput,
+  HistoryPoint,
+  MarketCoin,
+  NewsResponse,
+  RiskAssessment,
+} from "@/lib/types";
 
 const priceCurrency = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -30,6 +45,9 @@ export default function Home() {
   const [risk, setRisk] = useState<RiskAssessment | null>(null);
   const [news, setNews] = useState<NewsResponse | null>(null);
   const [watchlist, setWatchlist] = useState<string[]>([]);
+  const [alertRules, setAlertRules] = useState<AlertRule[]>([]);
+  const [alertEvents, setAlertEvents] = useState<AlertEvent[]>([]);
+  const [alertsBusy, setAlertsBusy] = useState(false);
   const [watchlistBusy, setWatchlistBusy] = useState(false);
   const [loadingMarkets, setLoadingMarkets] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(true);
@@ -38,6 +56,10 @@ export default function Home() {
   const selectedCoin = useMemo(
     () => markets.find((coin) => coin.id === selectedId) ?? markets[0],
     [markets, selectedId],
+  );
+  const activeAlerts = useMemo(
+    () => alertEvents.filter((event) => !event.acknowledged_at),
+    [alertEvents],
   );
 
   const loadMarkets = useCallback(async (signal?: AbortSignal) => {
@@ -55,18 +77,83 @@ export default function Home() {
     }
   }, []);
 
+  const loadAlertData = useCallback(async (signal?: AbortSignal) => {
+    const [rules, events] = await Promise.all([
+      getAlertRules(signal),
+      getAlertEvents(signal),
+    ]);
+    setAlertRules(rules);
+    setAlertEvents(events);
+  }, []);
+
+  const checkAlerts = useCallback(async () => {
+    setAlertsBusy(true);
+    try {
+      await evaluateAlerts();
+      await loadAlertData();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "预警检查失败");
+    } finally {
+      setAlertsBusy(false);
+    }
+  }, [loadAlertData]);
+
   useEffect(() => {
     const controller = new AbortController();
     void loadMarkets(controller.signal);
     void getWatchlist(controller.signal)
       .then((items) => setWatchlist(items.map((item) => item.coin_id)))
       .catch(() => setWatchlist([]));
-    const refreshTimer = window.setInterval(() => void loadMarkets(), 60_000);
+    void checkAlerts();
+    const refreshTimer = window.setInterval(() => {
+      void loadMarkets();
+      void checkAlerts();
+    }, 60_000);
     return () => {
       controller.abort();
       window.clearInterval(refreshTimer);
     };
-  }, [loadMarkets]);
+  }, [checkAlerts, loadMarkets]);
+
+  const createRule = async (input: AlertRuleInput) => {
+    setAlertsBusy(true);
+    try {
+      await createAlertRule(input);
+      await evaluateAlerts();
+      await loadAlertData();
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "预警规则创建失败");
+    } finally {
+      setAlertsBusy(false);
+    }
+  };
+
+  const deleteRule = async (ruleId: number) => {
+    setAlertsBusy(true);
+    try {
+      await deleteAlertRule(ruleId);
+      setAlertRules((rules) => rules.filter((rule) => rule.id !== ruleId));
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "预警规则删除失败");
+    } finally {
+      setAlertsBusy(false);
+    }
+  };
+
+  const acknowledgeEvent = async (eventId: number) => {
+    setAlertsBusy(true);
+    try {
+      const acknowledged = await acknowledgeAlertEvent(eventId);
+      setAlertEvents((events) => events.map((event) => event.id === eventId ? acknowledged : event));
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "预警确认失败");
+    } finally {
+      setAlertsBusy(false);
+    }
+  };
 
   const toggleWatchlist = async () => {
     if (!selectedCoin || watchlistBusy) return;
@@ -146,6 +233,17 @@ export default function Home() {
         </section>
       ) : null}
 
+      {activeAlerts.length > 0 ? (
+        <section className={`alert-banner ${activeAlerts[0].severity}`} role="alert">
+          <div>
+            <span>{activeAlerts.length} 条风险事件待确认</span>
+            <strong>{activeAlerts[0].title}</strong>
+            <p>{activeAlerts[0].message}</p>
+          </div>
+          <a href="#alerts">查看预警中心</a>
+        </section>
+      ) : null}
+
       <section className="market-grid" aria-label="核心资产行情">
         {loadingMarkets && markets.length === 0
           ? [0, 1, 2].map((item) => <div className="market-card skeleton-card" key={item} />)
@@ -189,6 +287,16 @@ export default function Home() {
         </div>
         <RiskPanel risk={risk} loading={loadingDetail} />
       </section>
+
+      <AlertCenter
+        rules={alertRules}
+        events={alertEvents}
+        busy={alertsBusy}
+        onCreate={createRule}
+        onDelete={deleteRule}
+        onAcknowledge={acknowledgeEvent}
+        onEvaluate={checkAlerts}
+      />
 
       <NewsPanel news={news} loading={loadingDetail} />
 
