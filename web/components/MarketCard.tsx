@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from "react";
+
 import type { MarketCoin } from "@/lib/types";
 
 interface MarketCardProps {
@@ -22,6 +24,17 @@ const priceCurrency = new Intl.NumberFormat("en-US", {
 export function MarketCard({ coin, active, onSelect }: MarketCardProps) {
   const change = coin.price_change_percentage_24h ?? 0;
   const positive = change >= 0;
+  const previousPrice = useRef(coin.current_price);
+  const [tickDirection, setTickDirection] = useState<"up" | "down" | null>(null);
+
+  useEffect(() => {
+    const oldPrice = previousPrice.current;
+    previousPrice.current = coin.current_price;
+    if (coin.current_price === oldPrice) return;
+    setTickDirection(coin.current_price > oldPrice ? "up" : "down");
+    const timer = window.setTimeout(() => setTickDirection(null), 650);
+    return () => window.clearTimeout(timer);
+  }, [coin.current_price]);
 
   return (
     <button
@@ -48,7 +61,9 @@ export function MarketCard({ coin, active, onSelect }: MarketCardProps) {
           </span>
         )}
       </div>
-      <div className="coin-price">{priceCurrency.format(coin.current_price)}</div>
+      <div className={`coin-price ${tickDirection ? `tick-${tickDirection}` : ""}`}>
+        {priceCurrency.format(coin.current_price)}
+      </div>
       <div className="coin-meta">
         <span>{coin.id === "gold" ? "美元 / 金衡盎司" : `市值 ${coin.market_cap ? compactCurrency.format(coin.market_cap) : "—"}`}</span>
         <span>{coin.id === "gold" ? "XAU/USD" : "24h"}</span>

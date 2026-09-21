@@ -8,9 +8,13 @@ The browser is responsible for interaction and visualization. FastAPI owns exter
 
 1. The Next.js page requests `/api/markets` from FastAPI.
 2. FastAPI checks its short-lived cache.
-3. On a cache miss, CoinGecko supplies crypto quotes and Gold API supplies the XAU spot quote.
+3. On a cache miss, CoinGecko supplies the crypto fallback snapshot and Gold API supplies the XAU spot quote.
 4. The response is validated with Pydantic models.
 5. The browser renders the normalized result.
+
+## How live prices and fallback polling work together
+
+The browser opens one Binance combined WebSocket for BTCUSDT, ETHUSDT, and SOLUSDT ticker events. The stream normally updates the cards about once per second. A separate 15-second REST refresh keeps the XAU quote current and repairs the screen if a stream message is missed. If the WebSocket is blocked or disconnected, the UI explicitly changes to fallback mode and reconnects in the background. Alert evaluation remains on a 60-second schedule so live rendering does not multiply expensive risk calculations.
 
 ## Why TradingView is embedded in the browser
 
@@ -36,6 +40,7 @@ Each rule stores whether it is currently on the triggered side of the threshold.
 - What happens when CoinGecko is unavailable?
 - Why is the score educational rather than investment advice?
 - Why should an alert trigger on a state transition instead of on every polling cycle?
+- Why combine WebSocket push data with a slower REST snapshot?
 - Why is an embedded chart useful, and what dependency risk does it introduce?
 - Why should translation be lazy and cached?
 - How would Redis replace the in-memory cache in a multi-server deployment?

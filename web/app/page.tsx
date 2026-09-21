@@ -7,6 +7,7 @@ import { MarketCard } from "@/components/MarketCard";
 import { NewsPanel } from "@/components/NewsPanel";
 import { RiskPanel } from "@/components/RiskPanel";
 import { TradingViewChart } from "@/components/TradingViewChart";
+import { useLiveCryptoPrices } from "@/hooks/useLiveCryptoPrices";
 import {
   addToWatchlist,
   acknowledgeAlertEvent,
@@ -36,6 +37,9 @@ const priceCurrency = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
 
+const MARKET_REFRESH_MS = 15_000;
+const ALERT_REFRESH_MS = 60_000;
+
 export default function Home() {
   const [markets, setMarkets] = useState<MarketCoin[]>([]);
   const [selectedId, setSelectedId] = useState("bitcoin");
@@ -49,6 +53,7 @@ export default function Home() {
   const [loadingMarkets, setLoadingMarkets] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const liveMarketStatus = useLiveCryptoPrices(setMarkets);
 
   const selectedCoin = useMemo(
     () => markets.find((coin) => coin.id === selectedId) ?? markets[0],
@@ -102,13 +107,12 @@ export default function Home() {
       .then((items) => setWatchlist(items.map((item) => item.coin_id)))
       .catch(() => setWatchlist([]));
     void checkAlerts();
-    const refreshTimer = window.setInterval(() => {
-      void loadMarkets();
-      void checkAlerts();
-    }, 60_000);
+    const marketRefreshTimer = window.setInterval(() => void loadMarkets(), MARKET_REFRESH_MS);
+    const alertRefreshTimer = window.setInterval(() => void checkAlerts(), ALERT_REFRESH_MS);
     return () => {
       controller.abort();
-      window.clearInterval(refreshTimer);
+      window.clearInterval(marketRefreshTimer);
+      window.clearInterval(alertRefreshTimer);
     };
   }, [checkAlerts, loadMarkets]);
 
@@ -202,7 +206,9 @@ export default function Home() {
           <span className="brand-mark">CS</span>
           <span>ChainScope</span>
         </a>
-        <div className="live-status"><i /> LIVE MARKET DATA</div>
+        <div className={`live-status ${liveMarketStatus}`} role="status" aria-live="polite">
+          <i /> {liveMarketStatus === "live" ? "实时行情已连接" : liveMarketStatus === "connecting" ? "正在连接实时行情" : "15秒轮询模式"}
+        </div>
         <a className="github-link" href="https://github.com/letter9394/ChainScope" target="_blank" rel="noreferrer">
           GitHub ↗
         </a>
@@ -218,9 +224,9 @@ export default function Home() {
           </p>
         </div>
         <div className="hero-meta">
-          <span>行情来源</span><strong>CoinGecko · Gold API</strong>
+          <span>行情来源</span><strong>Binance · Gold API</strong>
           <span>K线周期</span><strong>1 分钟 — 周线</strong>
-          <span>自动刷新</span><strong>60 秒</strong>
+          <span>行情更新</span><strong>{liveMarketStatus === "live" ? "约 1 秒实时推送" : "每 15 秒"}</strong>
         </div>
       </section>
 

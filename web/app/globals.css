@@ -44,6 +44,9 @@ main { width: min(1220px, calc(100% - 40px)); margin: 0 auto; }
 }
 .live-status { color: var(--muted); font-size: 11px; letter-spacing: 0.14em; display: flex; align-items: center; gap: 8px; }
 .live-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+.live-status.live i { animation: live-pulse 1.4s ease-in-out infinite; }
+.live-status.connecting i { background: var(--warning); box-shadow: 0 0 12px var(--warning); }
+.live-status.fallback i { background: var(--muted); box-shadow: none; }
 .github-link { color: var(--muted); font-size: 14px; transition: color .2s ease; }
 .github-link:hover { color: var(--text); }
 
@@ -87,7 +90,13 @@ main { width: min(1220px, calc(100% - 40px)); margin: 0 auto; }
 .change.negative { color: var(--danger); background: rgba(255,124,140,.1); }
 .change.spot { color: #ffe28a; background: rgba(255,226,138,.1); }
 .coin-price { font-size: 30px; font-weight: 720; letter-spacing: -.035em; margin-top: 24px; }
+.coin-price.tick-up { animation: price-up .65s ease-out; }
+.coin-price.tick-down { animation: price-down .65s ease-out; }
 .coin-meta { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: 10px; }
+
+@keyframes live-pulse { 50% { opacity: .45; transform: scale(.72); } }
+@keyframes price-up { 35% { color: var(--accent); text-shadow: 0 0 18px rgba(101,230,190,.45); } }
+@keyframes price-down { 35% { color: var(--danger); text-shadow: 0 0 18px rgba(255,124,140,.38); } }
 
 .dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(340px, .8fr); gap: 14px; margin-top: 14px; }
 .panel { border: 1px solid var(--line); background: rgba(13,25,22,.78); border-radius: var(--radius); }

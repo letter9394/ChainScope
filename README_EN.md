@@ -4,7 +4,8 @@ ChainScope is a full-stack Web3 market intelligence and risk alert platform buil
 
 ## Highlights
 
-- Live Bitcoin, Ethereum, Solana, and XAU spot-gold overview
+- Near-real-time BTC, ETH, and SOL quotes via Binance WebSocket, plus 15-second XAU and REST snapshot refreshes
+- Automatic 15-second polling fallback when the live stream is unavailable
 - Click-to-switch TradingView candlestick charts with 1/5/15/30-minute, 1/4-hour, daily, and weekly intervals
 - Transparent 0–100 score based on volatility, maximum drawdown, volume anomaly, and momentum
 - Live CoinDesk news with source links, sentiment labels, and on-demand English-to-Chinese translation
@@ -31,7 +32,7 @@ Open http://localhost:3100 for the dashboard and http://localhost:8000/docs for 
 
 The root `render.yaml` and multi-stage `Dockerfile` deploy the exported Next.js frontend and FastAPI backend as one same-origin Render service. On Render's free tier, the service sleeps when idle and its SQLite data is ephemeral. Use PostgreSQL or a paid persistent disk for production persistence.
 
-The XAU quote comes from Gold API and uses USD per troy ounce. Candlestick charts are embedded from TradingView. XAU is intentionally excluded from the crypto-specific risk score and threshold alerts, and machine-translated news should always be checked against the linked English original.
+The crypto cards use Binance's one-second ticker stream while CoinGecko provides the normalized fallback snapshot. The XAU quote comes from Gold API and uses USD per troy ounce. Candlestick charts are embedded from TradingView. XAU is intentionally excluded from the crypto-specific risk score and threshold alerts, and machine-translated news should always be checked against the linked English original.
 
 ## Quality checks
 
