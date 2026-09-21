@@ -67,5 +67,5 @@ async def test_news_translation_returns_bilingual_content(monkeypatch: pytest.Mo
 
     assert result.title_zh == "译文：Gold rises"
     assert result.summary_zh == "译文：Markets move higher"
-    assert result.provider == "MyMemory"
+    assert result.provider == "Google Translate（MyMemory 备用）"
     assert calls == ["Gold rises", "Markets move higher"]

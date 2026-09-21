@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     database_path: str = ".local/chainscope.db"
     news_rss_url: str = "https://www.coindesk.com/arc/outboundfeeds/rss/"
     news_cache_seconds: int = 300
+    google_translation_api_url: str = "https://translate.googleapis.com/translate_a/single"
     translation_api_url: str = "https://api.mymemory.translated.net/get"
     translation_cache_seconds: int = 86_400
     request_timeout_seconds: float = 10.0

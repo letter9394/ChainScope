@@ -107,6 +107,7 @@ Render 免费 Web Service 在闲置约 15 分钟后会休眠，首次唤醒可�
 COINGECKO_DEMO_API_KEY=
 GOLD_API_URL=https://api.gold-api.com/price/XAU
 TRANSLATION_API_URL=https://api.mymemory.translated.net/get
+GOOGLE_TRANSLATION_API_URL=https://translate.googleapis.com/translate_a/single
 TRANSLATION_CACHE_SECONDS=86400
 AI_API_KEY=
 AI_API_BASE_URL=https://api.openai.com/v1
