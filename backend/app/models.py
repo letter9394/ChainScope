@@ -32,6 +32,25 @@ class RiskMetric(BaseModel):
     explanation: str
 
 
+class DerivativesSnapshot(BaseModel):
+    coin_id: str
+    symbol: str
+    available: bool
+    funding_rate_percent: float | None = None
+    annualized_funding_percent: float | None = None
+    mark_price: float | None = None
+    next_funding_time: str | None = None
+    open_interest_usd: float | None = None
+    open_interest_change_5m_percent: float | None = None
+    long_short_ratio: float | None = None
+    long_account_percent: float | None = None
+    short_account_percent: float | None = None
+    fear_greed_value: int | None = None
+    fear_greed_label: str | None = None
+    updated_at: str
+    source: str
+
+
 class RiskAssessment(BaseModel):
     coin_id: str
     symbol: str
@@ -42,6 +61,7 @@ class RiskAssessment(BaseModel):
     metrics: list[RiskMetric]
     sample_days: int
     calculated_at: str
+    market_context: DerivativesSnapshot | None = None
 
 
 class HealthResponse(BaseModel):

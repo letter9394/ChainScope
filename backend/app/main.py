@@ -1,3 +1,4 @@
+import asyncio
 import os
 
 from fastapi import Depends, FastAPI, HTTPException, Query
@@ -10,6 +11,7 @@ from app.models import (
     AlertEvent,
     AlertRule,
     AlertRuleCreate,
+    DerivativesSnapshot,
     HealthResponse,
     HistoryPoint,
     MarketCoin,
@@ -20,6 +22,7 @@ from app.models import (
     WatchlistItem,
 )
 from app.services.alerts import AlertRepository, evaluate_alert_rules
+from app.services.derivatives import get_derivatives_snapshot
 from app.services.market import CoinGeckoClient, MarketDataError, SUPPORTED_COINS
 from app.services.news import get_news, translate_news
 from app.services.risk import assess_risk
@@ -61,7 +64,7 @@ async def health(settings: Settings = Depends(get_settings)) -> HealthResponse:
     return HealthResponse(
         status="ok",
         environment=settings.chain_scope_env,
-        market_provider="Binance + CoinGecko + Gold API",
+        market_provider="Binance Spot/Futures + CoinGecko + Gold API + Alternative.me",
     )
 
 
@@ -102,18 +105,43 @@ async def risk(
     coin_id: str,
     days: int = Query(default=30, ge=7, le=365),
     client: CoinGeckoClient = Depends(get_market_client),
+    settings: Settings = Depends(get_settings),
 ) -> RiskAssessment:
     try:
         history_points = await client.get_history(coin_id, days)
+        derivatives_result, news_result = await asyncio.gather(
+            get_derivatives_snapshot(settings, coin_id),
+            get_news(settings=settings, coin_id=coin_id, limit=6),
+            return_exceptions=True,
+        )
+        derivatives = derivatives_result if isinstance(derivatives_result, DerivativesSnapshot) else None
+        articles = news_result.articles if isinstance(news_result, NewsResponse) else None
         return assess_risk(
             coin_id=coin_id,
             symbol=SUPPORTED_COINS[coin_id],
             history=history_points,
+            derivatives=derivatives,
+            news_articles=articles,
         )
     except (ValueError, KeyError) as exc:
         raise HTTPException(status_code=404, detail=f"Unsupported coin: {coin_id}") from exc
     except MarketDataError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get(
+    "/api/coins/{coin_id}/derivatives",
+    response_model=DerivativesSnapshot,
+    tags=["risk"],
+)
+async def derivatives(
+    coin_id: str,
+    settings: Settings = Depends(get_settings),
+) -> DerivativesSnapshot:
+    try:
+        return await get_derivatives_snapshot(settings, coin_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get("/api/news", response_model=NewsResponse, tags=["news"])
@@ -222,9 +250,10 @@ async def acknowledge_alert_event(
 async def evaluate_alerts(
     repository: AlertRepository = Depends(get_alert_repository),
     client: CoinGeckoClient = Depends(get_market_client),
+    settings: Settings = Depends(get_settings),
 ) -> AlertEvaluationResponse:
     try:
-        return await evaluate_alert_rules(repository, client)
+        return await evaluate_alert_rules(repository, client, settings)
     except MarketDataError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 

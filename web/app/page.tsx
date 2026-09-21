@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AlertCenter } from "@/components/AlertCenter";
+import { DerivativesPanel } from "@/components/DerivativesPanel";
 import { MarketCard } from "@/components/MarketCard";
 import { NewsPanel } from "@/components/NewsPanel";
 import { RiskPanel } from "@/components/RiskPanel";
 import { TradingViewChart } from "@/components/TradingViewChart";
 import { useLiveCryptoPrices } from "@/hooks/useLiveCryptoPrices";
+import { useLiquidationStream } from "@/hooks/useLiquidationStream";
 import {
   addToWatchlist,
   acknowledgeAlertEvent,
@@ -38,6 +40,7 @@ const priceCurrency = new Intl.NumberFormat("en-US", {
 });
 
 const MARKET_REFRESH_MS = 15_000;
+const RISK_REFRESH_MS = 10_000;
 const ALERT_REFRESH_MS = 60_000;
 
 export default function Home() {
@@ -54,6 +57,7 @@ export default function Home() {
   const [loadingDetail, setLoadingDetail] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const liveMarketStatus = useLiveCryptoPrices(setMarkets);
+  const liquidationStats = useLiquidationStream(selectedId);
 
   const selectedCoin = useMemo(
     () => markets.find((coin) => coin.id === selectedId) ?? markets[0],
@@ -199,6 +203,16 @@ export default function Home() {
     return () => controller.abort();
   }, [selectedId]);
 
+  useEffect(() => {
+    if (selectedId === "gold") return;
+    const refreshTimer = window.setInterval(() => {
+      void getRisk(selectedId, 30)
+        .then((result) => setRisk(result))
+        .catch(() => undefined);
+    }, RISK_REFRESH_MS);
+    return () => window.clearInterval(refreshTimer);
+  }, [selectedId]);
+
   return (
     <main>
       <header className="site-header">
@@ -288,6 +302,12 @@ export default function Home() {
         <RiskPanel risk={risk} loading={loadingDetail} unavailable={selectedId === "gold"} />
       </section>
 
+      <DerivativesPanel
+        snapshot={risk?.market_context ?? null}
+        liquidation={liquidationStats}
+        unavailable={selectedId === "gold"}
+      />
+
       <AlertCenter
         rules={alertRules}
         events={alertEvents}
@@ -308,6 +328,8 @@ export default function Home() {
           <article><span>02</span><h3>最大回撤</h3><p>计算观察期内从高点到低点的最大跌幅，反映下行风险。</p></article>
           <article><span>03</span><h3>成交异常</h3><p>将最新成交量与近期均值比较，发现市场活跃度突然变化。</p></article>
           <article><span>04</span><h3>短期动量</h3><p>监测最近一期的剧烈涨跌，提示可能的追涨或抛售风险。</p></article>
+          <article><span>05</span><h3>杠杆与拥挤</h3><p>综合资金费率、持仓量变化和多空比例，识别杠杆堆积及连锁强平风险。</p></article>
+          <article><span>06</span><h3>市场情绪</h3><p>将恐慌贪婪指数和负面新闻占比纳入评分，观察极端情绪带来的反转风险。</p></article>
         </div>
       </section>
 

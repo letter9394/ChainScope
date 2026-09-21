@@ -49,8 +49,8 @@ export function RiskPanel({ risk, loading, unavailable = false }: RiskPanelProps
         ))}
       </div>
       <div className="model-note">
-        <span>规则模型 v0.1</span>
-        <span>{risk.sample_days} 个日样本</span>
+        <span>{risk.market_context?.available ? "复合模型 v0.2" : "基础模型 v0.1"}</span>
+        <span>{risk.sample_days} 个日样本 · 实时衍生品</span>
       </div>
     </aside>
   );

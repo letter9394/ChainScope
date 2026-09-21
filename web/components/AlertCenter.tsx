@@ -8,7 +8,6 @@ const coinOptions = [
   { id: "bitcoin", symbol: "BTC" },
   { id: "ethereum", symbol: "ETH" },
   { id: "solana", symbol: "SOL" },
-  { id: "gold", symbol: "XAU" },
 ];
 
 const metricCopy: Record<AlertMetric, { label: string; unit: string }> = {

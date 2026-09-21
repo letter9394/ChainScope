@@ -29,6 +29,25 @@ export interface RiskMetric {
   explanation: string;
 }
 
+export interface DerivativesSnapshot {
+  coin_id: string;
+  symbol: string;
+  available: boolean;
+  funding_rate_percent: number | null;
+  annualized_funding_percent: number | null;
+  mark_price: number | null;
+  next_funding_time: string | null;
+  open_interest_usd: number | null;
+  open_interest_change_5m_percent: number | null;
+  long_short_ratio: number | null;
+  long_account_percent: number | null;
+  short_account_percent: number | null;
+  fear_greed_value: number | null;
+  fear_greed_label: string | null;
+  updated_at: string;
+  source: string;
+}
+
 export interface RiskAssessment {
   coin_id: string;
   symbol: string;
@@ -39,6 +58,7 @@ export interface RiskAssessment {
   metrics: RiskMetric[];
   sample_days: number;
   calculated_at: string;
+  market_context: DerivativesSnapshot | null;
 }
 
 export interface NewsArticle {

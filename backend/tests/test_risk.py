@@ -1,6 +1,6 @@
 import pytest
 
-from app.models import HistoryPoint
+from app.models import DerivativesSnapshot, HistoryPoint
 from app.services.risk import assess_risk
 
 
@@ -71,3 +71,30 @@ def test_score_is_bounded() -> None:
 
     assert 0 <= result.score <= 100
 
+
+def test_enhanced_model_adds_live_market_metrics() -> None:
+    derivatives = DerivativesSnapshot(
+        coin_id="bitcoin",
+        symbol="BTC",
+        available=True,
+        funding_rate_percent=0.08,
+        open_interest_change_5m_percent=8,
+        long_short_ratio=3.0,
+        long_account_percent=75,
+        short_account_percent=25,
+        fear_greed_value=90,
+        fear_greed_label="Extreme Greed",
+        updated_at="2026-09-21T00:00:00+00:00",
+        source="test",
+    )
+    result = assess_risk(
+        "bitcoin",
+        "BTC",
+        points([100, 101, 100.5, 101.2, 101.5, 102, 102.2, 102.5]),
+        derivatives=derivatives,
+    )
+
+    keys = {metric.key for metric in result.metrics}
+    assert {"funding_rate", "open_interest", "position_crowding", "fear_greed"} <= keys
+    assert result.market_context == derivatives
+    assert result.score == sum(metric.contribution for metric in result.metrics)

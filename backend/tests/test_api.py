@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.main import app, get_market_client
-from app.models import HistoryPoint, MarketCoin
+from app.models import DerivativesSnapshot, HistoryPoint, MarketCoin, NewsResponse
 
 
 class FakeMarketClient:
@@ -56,7 +56,21 @@ def test_history_endpoint_returns_points() -> None:
     assert len(response.json()) == 8
 
 
-def test_risk_endpoint_is_explainable() -> None:
+def test_risk_endpoint_is_explainable(monkeypatch) -> None:
+    async def fake_derivatives(*args, **kwargs) -> DerivativesSnapshot:
+        return DerivativesSnapshot(
+            coin_id="solana",
+            symbol="SOL",
+            available=False,
+            updated_at="2026-09-21T00:00:00+00:00",
+            source="test",
+        )
+
+    async def fake_news(*args, **kwargs) -> NewsResponse:
+        return NewsResponse(articles=[], analysis_mode="rules", notice="test")
+
+    monkeypatch.setattr("app.main.get_derivatives_snapshot", fake_derivatives)
+    monkeypatch.setattr("app.main.get_news", fake_news)
     response = client.get("/api/coins/solana/risk?days=30")
 
     assert response.status_code == 200
@@ -70,4 +84,3 @@ def test_unknown_coin_returns_404() -> None:
     response = client.get("/api/coins/dogecoin/risk?days=30")
 
     assert response.status_code == 404
-

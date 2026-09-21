@@ -3,8 +3,11 @@ import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
+from app.config import Settings
 from app.models import AlertEvaluationResponse, AlertEvent, AlertRule, AlertRuleCreate
+from app.services.derivatives import get_derivatives_snapshot
 from app.services.market import CoinGeckoClient, SUPPORTED_COINS
+from app.services.news import get_news
 from app.services.risk import assess_risk
 
 
@@ -232,6 +235,7 @@ class AlertRepository:
 async def evaluate_alert_rules(
     repository: AlertRepository,
     client: CoinGeckoClient,
+    settings: Settings | None = None,
 ) -> AlertEvaluationResponse:
     rules = repository.list_rules(enabled_only=True)
     readings: dict[tuple[str, str], float] = {}
@@ -248,7 +252,21 @@ async def evaluate_alert_rules(
     risk_coin_ids = {rule.coin_id for rule in rules if rule.metric == "risk_score"}
     for coin_id in risk_coin_ids:
         history = await client.get_history(coin_id, 30)
-        assessment = assess_risk(coin_id, SUPPORTED_COINS[coin_id], history)
+        derivatives = None
+        articles = None
+        if settings is not None:
+            try:
+                derivatives = await get_derivatives_snapshot(settings, coin_id)
+                articles = (await get_news(settings, coin_id=coin_id, limit=6)).articles
+            except (RuntimeError, ValueError):
+                pass
+        assessment = assess_risk(
+            coin_id,
+            SUPPORTED_COINS[coin_id],
+            history,
+            derivatives=derivatives,
+            news_articles=articles,
+        )
         readings[(coin_id, "risk_score")] = float(assessment.score)
 
     triggered_events = repository.evaluate(readings)
