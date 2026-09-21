@@ -62,12 +62,51 @@ export const getRisk = (coinId: string, days = 30, signal?: AbortSignal) =>
 export const getNews = (coinId: string, limit = 6, signal?: AbortSignal) =>
   apiRequest<NewsResponse>(`/api/news?coin_id=${coinId}&limit=${limit}`, signal);
 
-export const translateNews = (title: string, summary: string) =>
-  apiRequest<NewsTranslation>("/api/news/translate", undefined, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ title, summary }),
-  });
+async function translateTextInBrowser(text: string): Promise<string> {
+  const url = new URL("https://translate.googleapis.com/translate_a/single");
+  url.search = new URLSearchParams({
+    client: "gtx",
+    sl: "en",
+    tl: "zh-CN",
+    dt: "t",
+    q: text,
+  }).toString();
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) throw new Error(`备用翻译失败（${response.status}）`);
+
+  const payload: unknown = await response.json();
+  if (!Array.isArray(payload) || !Array.isArray(payload[0])) {
+    throw new Error("备用翻译返回了未知格式");
+  }
+  const translated = payload[0]
+    .map((chunk) => (Array.isArray(chunk) && chunk[0] ? String(chunk[0]) : ""))
+    .join("")
+    .trim();
+  if (!translated) throw new Error("备用翻译结果为空");
+  return translated;
+}
+
+export async function translateNews(title: string, summary: string): Promise<NewsTranslation> {
+  try {
+    return await apiRequest<NewsTranslation>("/api/news/translate", undefined, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, summary }),
+    });
+  } catch {
+    try {
+      const titleZh = await translateTextInBrowser(title);
+      const summaryZh = await translateTextInBrowser(summary);
+      return {
+        title_zh: titleZh,
+        summary_zh: summaryZh,
+        provider: "Google Translate（浏览器备用通道）",
+      };
+    } catch {
+      throw new Error("翻译服务暂时繁忙，请稍后重试。");
+    }
+  }
+}
 
 export const getWatchlist = (signal?: AbortSignal) =>
   apiRequest<WatchlistItem[]>("/api/watchlist", signal);
