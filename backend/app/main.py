@@ -61,7 +61,7 @@ async def health(settings: Settings = Depends(get_settings)) -> HealthResponse:
     return HealthResponse(
         status="ok",
         environment=settings.chain_scope_env,
-        market_provider="CoinGecko + Gold API",
+        market_provider="Binance + CoinGecko + Gold API",
     )
 
 
