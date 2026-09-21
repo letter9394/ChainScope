@@ -20,6 +20,9 @@ BINANCE_SYMBOLS: dict[str, str] = {
     "ETHUSDT": "ethereum",
     "SOLUSDT": "solana",
 }
+COIN_BINANCE_SYMBOLS: dict[str, str] = {
+    coin_id: symbol for symbol, coin_id in BINANCE_SYMBOLS.items()
+}
 FALLBACK_COIN_METADATA: dict[str, tuple[str, str]] = {
     "bitcoin": ("Bitcoin", "https://assets.coingecko.com/coins/images/1/large/bitcoin.png"),
     "ethereum": ("Ethereum", "https://assets.coingecko.com/coins/images/279/large/ethereum.png"),
@@ -201,10 +204,13 @@ class CoinGeckoClient:
         if cached is not None:
             return cached
 
-        payload = await self._get(
-            f"/coins/{coin_id}/market_chart",
-            {"vs_currency": "usd", "days": days, "interval": "daily"},
-        )
+        try:
+            payload = await self._get(
+                f"/coins/{coin_id}/market_chart",
+                {"vs_currency": "usd", "days": days, "interval": "daily"},
+            )
+        except MarketDataError:
+            return await self._get_binance_history(coin_id, days)
         prices = payload.get("prices", []) if isinstance(payload, dict) else []
         volumes = payload.get("total_volumes", []) if isinstance(payload, dict) else []
         volume_by_timestamp = {int(item[0]): float(item[1]) for item in volumes}
@@ -219,9 +225,44 @@ class CoinGeckoClient:
             if isinstance(item, list) and len(item) >= 2
         ]
         if len(history) < 2:
-            raise MarketDataError("Not enough historical data was returned")
+            return await self._get_binance_history(coin_id, days)
 
         cache.set(cache_key, history, self.settings.history_cache_seconds)
+        return history
+
+    async def _get_binance_history(self, coin_id: str, days: int) -> list[HistoryPoint]:
+        symbol = COIN_BINANCE_SYMBOLS[coin_id]
+        try:
+            async with httpx.AsyncClient(
+                base_url=self.settings.binance_market_url,
+                timeout=self.settings.request_timeout_seconds,
+                headers={"Accept": "application/json", "User-Agent": "ChainScope/0.4"},
+            ) as client:
+                response = await client.get(
+                    "/api/v3/klines",
+                    params={"symbol": symbol, "interval": "1d", "limit": days},
+                )
+                response.raise_for_status()
+                payload = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise MarketDataError("Historical market data providers are temporarily unavailable") from exc
+
+        try:
+            history = [
+                HistoryPoint(
+                    timestamp=int(row[0]),
+                    price=float(row[4]),
+                    volume=float(row[7]),
+                )
+                for row in payload
+                if isinstance(row, list) and len(row) >= 8
+            ]
+        except (TypeError, ValueError) as exc:
+            raise MarketDataError("Fallback history provider returned invalid data") from exc
+        if len(history) < 2:
+            raise MarketDataError("Fallback history provider returned incomplete data")
+
+        cache.set(f"history:{coin_id}:{days}", history, self.settings.history_cache_seconds)
         return history
 
 

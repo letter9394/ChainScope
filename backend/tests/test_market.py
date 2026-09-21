@@ -1,7 +1,7 @@
 import pytest
 
 from app.config import Settings
-from app.models import MarketCoin
+from app.models import HistoryPoint, MarketCoin
 from app.services.cache import cache
 from app.services.market import CoinGeckoClient, MarketDataError, datetime_from_milliseconds
 
@@ -39,3 +39,28 @@ async def test_market_snapshot_falls_back_when_coingecko_is_unavailable(
 def test_binance_timestamp_is_normalized_to_iso_utc() -> None:
     assert datetime_from_milliseconds(0) == "1970-01-01T00:00:00+00:00"
     assert datetime_from_milliseconds(None) is None
+
+
+@pytest.mark.anyio
+async def test_history_falls_back_to_binance_when_coingecko_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache.clear()
+    client = CoinGeckoClient(Settings())
+    fallback = [
+        HistoryPoint(timestamp=1, price=100, volume=1_000),
+        HistoryPoint(timestamp=2, price=102, volume=1_200),
+    ]
+
+    async def unavailable(path: str, params: dict[str, object]) -> object:
+        raise MarketDataError("CoinGecko unavailable")
+
+    async def binance_history(coin_id: str, days: int) -> list[HistoryPoint]:
+        assert coin_id == "bitcoin"
+        assert days == 30
+        return fallback
+
+    monkeypatch.setattr(client, "_get", unavailable)
+    monkeypatch.setattr(client, "_get_binance_history", binance_history)
+
+    assert await client.get_history("bitcoin", 30) == fallback
