@@ -97,7 +97,7 @@ export function AlertCenter({
           <div className="alert-explainer">
             <strong>阈值 = 你设置的报警线</strong>
             <p>例如风险分报警线设为 65：当风险分从 65 以下升到 65 或更高时，系统记录一次预警。</p>
-            <div><span>0–39 低风险</span><span>40–64 中风险</span><span>65–100 高风险</span></div>
+            <div><span>0–29 低风险</span><span>30–59 中风险</span><span>60–100 高风险</span></div>
           </div>
           <form className="alert-form" onSubmit={submit}>
             <label>资产
