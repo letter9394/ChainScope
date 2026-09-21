@@ -56,7 +56,10 @@ def test_rss_parser_extracts_items() -> None:
 
 @pytest.mark.anyio
 async def test_news_translation_returns_bilingual_content(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
     async def fake_translate(text: str, settings: Settings) -> str:
+        calls.append(text)
         return f"译文：{text}"
 
     monkeypatch.setattr(news_service, "_translate_text", fake_translate)
@@ -65,3 +68,4 @@ async def test_news_translation_returns_bilingual_content(monkeypatch: pytest.Mo
     assert result.title_zh == "译文：Gold rises"
     assert result.summary_zh == "译文：Markets move higher"
     assert result.provider == "MyMemory"
+    assert calls == ["Gold rises", "Markets move higher"]

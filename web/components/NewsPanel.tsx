@@ -14,7 +14,7 @@ export function NewsPanel({ news, loading }: NewsPanelProps) {
   const [translations, setTranslations] = useState<Record<string, NewsTranslation>>({});
   const [visibleTranslations, setVisibleTranslations] = useState<Record<string, boolean>>({});
   const [translatingId, setTranslatingId] = useState<string | null>(null);
-  const [translationError, setTranslationError] = useState<string | null>(null);
+  const [translationErrors, setTranslationErrors] = useState<Record<string, string>>({});
 
   const toggleTranslation = async (articleId: string, title: string, summary: string) => {
     if (translations[articleId]) {
@@ -23,13 +23,21 @@ export function NewsPanel({ news, loading }: NewsPanelProps) {
     }
 
     setTranslatingId(articleId);
-    setTranslationError(null);
+    setTranslationErrors((current) => {
+      const next = { ...current };
+      delete next[articleId];
+      return next;
+    });
     try {
       const translation = await translateNews(title, summary);
       setTranslations((current) => ({ ...current, [articleId]: translation }));
       setVisibleTranslations((current) => ({ ...current, [articleId]: true }));
     } catch (reason) {
-      setTranslationError(reason instanceof Error ? reason.message : "翻译暂时不可用");
+      const rawMessage = reason instanceof Error ? reason.message : "翻译暂时不可用";
+      const message = rawMessage.includes("Translation service")
+        ? "翻译服务暂时繁忙，请稍后重试。"
+        : rawMessage;
+      setTranslationErrors((current) => ({ ...current, [articleId]: message }));
     } finally {
       setTranslatingId(null);
     }
@@ -56,6 +64,7 @@ export function NewsPanel({ news, loading }: NewsPanelProps) {
             {news.articles.map((article) => {
               const translation = translations[article.id];
               const showTranslation = visibleTranslations[article.id] && translation;
+              const translationError = translationErrors[article.id];
               return (
                 <article className="news-card" key={article.id}>
                   <div className="news-card-meta">
@@ -71,10 +80,13 @@ export function NewsPanel({ news, loading }: NewsPanelProps) {
                       onClick={() => void toggleTranslation(article.id, article.title, article.summary)}
                       disabled={translatingId === article.id}
                     >
-                      {translatingId === article.id ? "翻译中…" : showTranslation ? "显示英文" : "中文翻译"}
+                      {translatingId === article.id ? "翻译中…" : showTranslation ? "显示英文" : translationError ? "重试翻译" : "中文翻译"}
                     </button>
                     <a href={article.url} target="_blank" rel="noreferrer">阅读原文 ↗</a>
                   </div>
+                  {translationError ? (
+                    <p className="translation-error" role="alert">{translationError}</p>
+                  ) : null}
                   <div className="news-card-footer">
                     <span>{article.source}</span>
                     <span>{article.related_symbols.join(" · ") || "MARKET"}</span>
@@ -83,7 +95,6 @@ export function NewsPanel({ news, loading }: NewsPanelProps) {
               );
             })}
           </div>
-          {translationError ? <p className="news-notice translation-error">{translationError}</p> : null}
           <p className="news-notice">{news.notice} · 新闻译文由机器生成，请以英文原文为准。</p>
         </>
       ) : (

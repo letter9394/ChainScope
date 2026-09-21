@@ -230,19 +230,31 @@ async def _translate_text(text: str, settings: Settings) -> str:
     if cached is not None:
         return cached
 
-    try:
-        async with httpx.AsyncClient(timeout=settings.request_timeout_seconds) as client:
-            response = await client.get(
-                settings.translation_api_url,
-                params={"q": text, "langpair": "en|zh-CN", "mt": "1"},
-            )
-            response.raise_for_status()
-            payload = response.json()
-        translated = html.unescape(str(payload["responseData"]["translatedText"])).strip()
-        if not translated:
-            raise ValueError("Empty translation")
-    except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
-        raise RuntimeError("Translation service is temporarily unavailable") from exc
+    last_error: Exception | None = None
+    async with httpx.AsyncClient(
+        timeout=settings.request_timeout_seconds,
+        headers={"Accept": "application/json", "User-Agent": "ChainScope/0.1"},
+    ) as client:
+        for attempt in range(3):
+            try:
+                response = await client.get(
+                    settings.translation_api_url,
+                    params={"q": text, "langpair": "en|zh-CN", "mt": "1"},
+                )
+                response.raise_for_status()
+                payload = response.json()
+                if int(payload.get("responseStatus", 200)) != 200:
+                    raise ValueError(str(payload.get("responseDetails") or "Translation rejected"))
+                translated = html.unescape(str(payload["responseData"]["translatedText"])).strip()
+                if not translated or translated.upper().startswith("MYMEMORY WARNING"):
+                    raise ValueError("Empty or throttled translation")
+                break
+            except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
+                last_error = exc
+                if attempt < 2:
+                    await asyncio.sleep(0.4 * (attempt + 1))
+        else:
+            raise RuntimeError("Translation service is temporarily unavailable") from last_error
 
     cache.set(cache_key, translated, settings.translation_cache_seconds)
     return translated
@@ -253,10 +265,10 @@ async def translate_news(
     summary: str,
     settings: Settings,
 ) -> NewsTranslationResponse:
-    title_zh, summary_zh = await asyncio.gather(
-        _translate_text(title, settings),
-        _translate_text(summary, settings),
-    )
+    # MyMemory's anonymous endpoint may throttle simultaneous requests from the
+    # same Render instance. Translate sequentially so one click remains reliable.
+    title_zh = await _translate_text(title, settings)
+    summary_zh = await _translate_text(summary, settings)
     return NewsTranslationResponse(
         title_zh=title_zh,
         summary_zh=summary_zh,

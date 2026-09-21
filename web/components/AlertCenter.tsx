@@ -8,6 +8,7 @@ const coinOptions = [
   { id: "bitcoin", symbol: "BTC" },
   { id: "ethereum", symbol: "ETH" },
   { id: "solana", symbol: "SOL" },
+  { id: "gold", symbol: "XAU" },
 ];
 
 const metricCopy: Record<AlertMetric, { label: string; unit: string }> = {
@@ -52,6 +53,9 @@ export function AlertCenter({
   const [metric, setMetric] = useState<AlertMetric>("risk_score");
   const [operator, setOperator] = useState<AlertOperator>("gte");
   const [threshold, setThreshold] = useState("65");
+  const selectedSymbol = coinOptions.find((coin) => coin.id === coinId)?.symbol ?? coinId;
+  const comparisonCopy = operator === "gte" ? "达到或高于" : "达到或低于";
+  const thresholdCopy = threshold.trim() || "—";
 
   const changeMetric = (nextMetric: AlertMetric) => {
     setMetric(nextMetric);
@@ -90,6 +94,11 @@ export function AlertCenter({
             <div><span>01</span><h3>设置监控规则</h3></div>
             <strong>{rules.length} 条启用</strong>
           </div>
+          <div className="alert-explainer">
+            <strong>阈值 = 你设置的报警线</strong>
+            <p>例如风险分报警线设为 65：当风险分从 65 以下升到 65 或更高时，系统记录一次预警。</p>
+            <div><span>0–39 低风险</span><span>40–64 中风险</span><span>65–100 高风险</span></div>
+          </div>
           <form className="alert-form" onSubmit={submit}>
             <label>资产
               <select value={coinId} onChange={(event) => setCoinId(event.target.value)}>
@@ -108,10 +117,15 @@ export function AlertCenter({
                 <option value="lte">达到或低于</option>
               </select>
             </label>
-            <label>阈值
+            <label>报警线（阈值）
               <div className="threshold-input"><input value={threshold} onChange={(event) => setThreshold(event.target.value)} type="number" min="-100" max="100" step="0.1" required /><span>{metricCopy[metric].unit}</span></div>
             </label>
-            <button className="primary-button" type="submit" disabled={busy}>创建并检查</button>
+            <div className="alert-rule-preview">
+              <strong>当前规则</strong>
+              <span>当 {selectedSymbol} 的{metricCopy[metric].label}{comparisonCopy} {thresholdCopy}{metricCopy[metric].unit}时提醒我。</span>
+              <small>{metric === "risk_score" ? "风险分范围为 0–100，分数越高代表市场风险越大。" : "例如设为 -5%，表示 24 小时跌幅达到 5% 或更多时提醒。"}</small>
+            </div>
+            <button className="primary-button" type="submit" disabled={busy}>保存这条提醒</button>
           </form>
 
           <div className="rule-list">
