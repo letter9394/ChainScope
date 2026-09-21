@@ -23,7 +23,21 @@ class Settings(BaseSettings):
     gold_cache_seconds: int = 15
     history_cache_seconds: int = 300
     derivatives_cache_seconds: int = 10
+    database_url: str | None = None
     database_path: str = ".local/chainscope.db"
+    session_secret: str = "change-this-development-secret"
+    session_cookie_name: str = "chainscope_session"
+    session_max_age_seconds: int = 60 * 60 * 24 * 30
+    alert_check_seconds: int = 60
+    background_alerts_enabled: bool = True
+    public_app_url: str = "http://localhost:3100"
+    telegram_bot_token: str | None = None
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from_email: str | None = None
+    smtp_use_tls: bool = True
     news_rss_url: str = "https://www.coindesk.com/arc/outboundfeeds/rss/"
     news_cache_seconds: int = 300
     google_translation_api_url: str = "https://translate.googleapis.com/translate_a/single"
@@ -33,6 +47,14 @@ class Settings(BaseSettings):
     ai_api_base_url: str | None = None
     ai_api_key: str | None = None
     ai_model: str | None = None
+
+    @property
+    def resolved_database_url(self) -> str:
+        if self.database_url:
+            if self.database_url.startswith("postgresql://"):
+                return self.database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+            return self.database_url
+        return f"sqlite:///{self.database_path}"
 
 
 @lru_cache

@@ -30,6 +30,7 @@ function timeLabel(value: string) {
 }
 
 interface AlertCenterProps {
+  authenticated: boolean;
   rules: AlertRule[];
   events: AlertEvent[];
   busy: boolean;
@@ -40,6 +41,7 @@ interface AlertCenterProps {
 }
 
 export function AlertCenter({
+  authenticated,
   rules,
   events,
   busy,
@@ -80,14 +82,20 @@ export function AlertCenter({
         <div>
           <p className="kicker">THRESHOLD MONITORING</p>
           <h2>风险预警中心</h2>
-          <p>每 60 秒用最新行情检查一次。只有从安全状态首次越线时才产生新事件，避免重复轰炸。</p>
+          <p>登录后由服务器每 60 秒用最新行情检查一次。只有从安全状态首次越线时才产生新事件，避免重复轰炸。</p>
         </div>
-        <button className="secondary-button" type="button" onClick={() => void onEvaluate()} disabled={busy}>
+        <button className="secondary-button" type="button" onClick={() => void onEvaluate()} disabled={busy || !authenticated}>
           {busy ? "检查中…" : "立即检查"}
         </button>
       </div>
 
-      <div className="alerts-grid">
+      {!authenticated ? (
+        <div className="auth-gate panel">
+          <strong>登录后启用个人风险预警</strong>
+          <p>你的规则、触发状态和历史事件会独立保存。请先在页面上方登录或注册。</p>
+          <a href="#account">前往登录</a>
+        </div>
+      ) : <div className="alerts-grid">
         <div className="panel alert-rule-panel">
           <div className="section-title-row">
             <div><span>01</span><h3>设置监控规则</h3></div>
@@ -153,7 +161,7 @@ export function AlertCenter({
             ))}
           </div>
         </div>
-      </div>
+      </div>}
     </section>
   );
 }

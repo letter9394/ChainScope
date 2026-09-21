@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class MarketCoin(BaseModel):
@@ -68,6 +68,8 @@ class HealthResponse(BaseModel):
     status: Literal["ok"]
     environment: str
     market_provider: str
+    database: str = "sqlite"
+    background_alerts: bool = False
 
 
 class NewsArticle(BaseModel):
@@ -147,3 +149,36 @@ class AlertEvaluationResponse(BaseModel):
     evaluated_rules: int
     triggered_events: list[AlertEvent]
     active_events: list[AlertEvent]
+
+
+class AuthCredentials(BaseModel):
+    email: str = Field(min_length=5, max_length=320)
+    password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized.count("@") != 1 or "." not in normalized.rsplit("@", 1)[1]:
+            raise ValueError("请输入有效的邮箱地址")
+        return normalized
+
+
+class AuthUser(BaseModel):
+    id: int
+    email: str
+    created_at: str
+
+
+class NotificationSettingsUpdate(BaseModel):
+    email_enabled: bool = False
+    telegram_enabled: bool = False
+    telegram_chat_id: str | None = Field(default=None, max_length=128)
+
+
+class NotificationSettingsResponse(NotificationSettingsUpdate):
+    in_app_enabled: bool = True
+    email_available: bool
+    telegram_available: bool
+    schedule_seconds: int
+    schedule_mode: str

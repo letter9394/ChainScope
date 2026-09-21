@@ -133,3 +133,20 @@ export interface AlertEvaluationResponse {
   triggered_events: AlertEvent[];
   active_events: AlertEvent[];
 }
+
+export interface AuthUser {
+  id: number;
+  email: string;
+  created_at: string;
+}
+
+export interface NotificationSettings {
+  in_app_enabled: boolean;
+  email_enabled: boolean;
+  telegram_enabled: boolean;
+  telegram_chat_id: string | null;
+  email_available: boolean;
+  telegram_available: boolean;
+  schedule_seconds: number;
+  schedule_mode: string;
+}

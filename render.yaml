@@ -1,3 +1,11 @@
+databases:
+  - name: chainscope-db
+    plan: free
+    region: singapore
+    databaseName: chainscope
+    user: chainscope
+    ipAllowList: []
+
 services:
   - type: web
     name: chainscope-web3
@@ -10,7 +18,17 @@ services:
     envVars:
       - key: CHAIN_SCOPE_ENV
         value: production
-      - key: DATABASE_PATH
-        value: /tmp/chainscope/chainscope.db
+      - key: DATABASE_URL
+        fromDatabase:
+          name: chainscope-db
+          property: connectionString
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: BACKGROUND_ALERTS_ENABLED
+        value: "true"
+      - key: ALERT_CHECK_SECONDS
+        value: "60"
+      - key: PUBLIC_APP_URL
+        value: https://chainscope-web3.onrender.com
       - key: STATIC_DIR
         value: /app/static

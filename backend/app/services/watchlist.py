@@ -1,67 +1,64 @@
-import sqlite3
-import threading
-from datetime import UTC, datetime
-from pathlib import Path
+from __future__ import annotations
 
+from sqlalchemy import delete, select
+
+from app.database import Database, WatchlistRow, utcnow
 from app.models import WatchlistItem
 from app.services.market import SUPPORTED_ASSETS
 
 
 class WatchlistRepository:
-    """SQLite-backed repository for the single-user local MVP."""
+    """User-scoped watchlist backed by PostgreSQL or local SQLite."""
 
-    def __init__(self, database_path: str) -> None:
-        self.database_path = Path(database_path)
-        self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        self._lock = threading.Lock()
-        self._initialize()
+    def __init__(self, database: Database | str, user_id: int = 1) -> None:
+        self.database = database if isinstance(database, Database) else Database(database)
+        self.user_id = user_id
 
-    def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.database_path, timeout=5)
-        connection.row_factory = sqlite3.Row
-        return connection
-
-    def _initialize(self) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS watchlist (
-                    coin_id TEXT PRIMARY KEY,
-                    symbol TEXT NOT NULL,
-                    added_at TEXT NOT NULL
-                )
-                """
-            )
+    @staticmethod
+    def _model(row: WatchlistRow) -> WatchlistItem:
+        return WatchlistItem(coin_id=row.coin_id, symbol=row.symbol, added_at=row.added_at.isoformat())
 
     def list_items(self) -> list[WatchlistItem]:
-        with self._connect() as connection:
-            rows = connection.execute(
-                "SELECT coin_id, symbol, added_at FROM watchlist ORDER BY added_at DESC"
-            ).fetchall()
-        return [WatchlistItem(**dict(row)) for row in rows]
+        with self.database.session() as session:
+            rows = session.scalars(
+                select(WatchlistRow)
+                .where(WatchlistRow.user_id == self.user_id)
+                .order_by(WatchlistRow.added_at.desc())
+            ).all()
+            return [self._model(row) for row in rows]
 
     def add(self, coin_id: str) -> WatchlistItem:
         if coin_id not in SUPPORTED_ASSETS:
             raise ValueError(f"Unsupported coin: {coin_id}")
-        item = WatchlistItem(
-            coin_id=coin_id,
-            symbol=SUPPORTED_ASSETS[coin_id],
-            added_at=datetime.now(UTC).isoformat(),
-        )
-        with self._lock, self._connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO watchlist (coin_id, symbol, added_at)
-                VALUES (?, ?, ?)
-                ON CONFLICT(coin_id) DO UPDATE SET
-                    symbol = excluded.symbol,
-                    added_at = excluded.added_at
-                """,
-                (item.coin_id, item.symbol, item.added_at),
+        with self.database.session() as session:
+            row = session.scalar(
+                select(WatchlistRow).where(
+                    WatchlistRow.user_id == self.user_id,
+                    WatchlistRow.coin_id == coin_id,
+                )
             )
-        return item
+            if row is None:
+                row = WatchlistRow(
+                    user_id=self.user_id,
+                    coin_id=coin_id,
+                    symbol=SUPPORTED_ASSETS[coin_id],
+                    added_at=utcnow(),
+                )
+                session.add(row)
+            else:
+                row.symbol = SUPPORTED_ASSETS[coin_id]
+                row.added_at = utcnow()
+            session.commit()
+            session.refresh(row)
+            return self._model(row)
 
     def remove(self, coin_id: str) -> bool:
-        with self._lock, self._connect() as connection:
-            cursor = connection.execute("DELETE FROM watchlist WHERE coin_id = ?", (coin_id,))
-        return cursor.rowcount > 0
+        with self.database.session() as session:
+            result = session.execute(
+                delete(WatchlistRow).where(
+                    WatchlistRow.user_id == self.user_id,
+                    WatchlistRow.coin_id == coin_id,
+                )
+            )
+            session.commit()
+            return bool(result.rowcount)

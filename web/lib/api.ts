@@ -3,10 +3,12 @@ import type {
   AlertEvent,
   AlertRule,
   AlertRuleInput,
+  AuthUser,
   HistoryPoint,
   MarketCoin,
   NewsResponse,
   NewsTranslation,
+  NotificationSettings,
   RiskAssessment,
   WatchlistItem,
 } from "./types";
@@ -34,13 +36,18 @@ async function apiRequest<T>(
     ...init,
     signal,
     cache: "no-store",
+    credentials: "include",
   });
 
   if (!response.ok) {
     let message = `请求失败（${response.status}）`;
     try {
-      const body = (await response.json()) as { detail?: string };
-      if (body.detail) message = body.detail;
+      const body = (await response.json()) as { detail?: string | Array<{ msg?: string }> };
+      if (typeof body.detail === "string") message = body.detail;
+      if (Array.isArray(body.detail)) {
+        const validationMessage = body.detail.map((item) => item.msg).filter(Boolean).join("；");
+        if (validationMessage) message = validationMessage;
+      }
     } catch {
       // The status code is still useful when the body is not JSON.
     }
@@ -115,7 +122,7 @@ export const addToWatchlist = (coinId: string) =>
   apiRequest<WatchlistItem>(`/api/watchlist/${coinId}`, undefined, { method: "POST" });
 
 export async function removeFromWatchlist(coinId: string): Promise<void> {
-  const response = await fetch(`${apiBaseUrl()}/api/watchlist/${coinId}`, { method: "DELETE" });
+  const response = await fetch(`${apiBaseUrl()}/api/watchlist/${coinId}`, { method: "DELETE", credentials: "include" });
   if (!response.ok && response.status !== 204) {
     throw new Error(`删除自选失败（${response.status}）`);
   }
@@ -132,7 +139,7 @@ export const createAlertRule = (input: AlertRuleInput) =>
   });
 
 export async function deleteAlertRule(ruleId: number): Promise<void> {
-  const response = await fetch(`${apiBaseUrl()}/api/alerts/rules/${ruleId}`, { method: "DELETE" });
+  const response = await fetch(`${apiBaseUrl()}/api/alerts/rules/${ruleId}`, { method: "DELETE", credentials: "include" });
   if (!response.ok && response.status !== 204) {
     throw new Error(`删除预警规则失败（${response.status}）`);
   }
@@ -149,4 +156,39 @@ export const acknowledgeAlertEvent = (eventId: number) =>
 export const evaluateAlerts = () =>
   apiRequest<AlertEvaluationResponse>("/api/alerts/evaluate", undefined, {
     method: "POST",
+  });
+
+export const getCurrentUser = (signal?: AbortSignal) =>
+  apiRequest<AuthUser>("/api/auth/me", signal);
+
+export const registerUser = (email: string, password: string) =>
+  apiRequest<AuthUser>("/api/auth/register", undefined, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+
+export const loginUser = (email: string, password: string) =>
+  apiRequest<AuthUser>("/api/auth/login", undefined, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+
+export async function logoutUser(): Promise<void> {
+  const response = await fetch(`${apiBaseUrl()}/api/auth/logout`, {
+    method: "POST",
+    credentials: "include",
+  });
+  if (!response.ok && response.status !== 204) throw new Error("退出登录失败");
+}
+
+export const getNotificationSettings = (signal?: AbortSignal) =>
+  apiRequest<NotificationSettings>("/api/notifications/settings", signal);
+
+export const updateNotificationSettings = (settings: Pick<NotificationSettings, "email_enabled" | "telegram_enabled" | "telegram_chat_id">) =>
+  apiRequest<NotificationSettings>("/api/notifications/settings", undefined, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
   });

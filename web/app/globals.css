@@ -49,6 +49,7 @@ main { width: min(1220px, calc(100% - 40px)); margin: 0 auto; }
 .live-status.fallback i { background: var(--muted); box-shadow: none; }
 .github-link { color: var(--muted); font-size: 14px; transition: color .2s ease; }
 .github-link:hover { color: var(--text); }
+.account-link { max-width: 220px; overflow: hidden; text-overflow: ellipsis; color: var(--accent); font-size: 12px; white-space: nowrap; }
 
 .hero { min-height: 350px; display: grid; grid-template-columns: 1.6fr .65fr; align-items: center; gap: 70px; padding: 72px 0 50px; }
 .kicker, .panel-eyebrow { color: var(--accent); font-size: 11px; font-weight: 750; letter-spacing: .18em; margin: 0 0 16px; }
@@ -57,6 +58,29 @@ main { width: min(1220px, calc(100% - 40px)); margin: 0 auto; }
 .hero-meta { display: grid; grid-template-columns: 1fr auto; gap: 14px 24px; padding: 24px 0 24px 28px; border-left: 1px solid var(--line); }
 .hero-meta span { color: var(--muted); font-size: 13px; }
 .hero-meta strong { text-align: right; font-size: 13px; }
+
+.account-panel { display: grid; grid-template-columns: 1.1fr .9fr; gap: 48px; align-items: center; padding: 28px; margin-bottom: 20px; scroll-margin-top: 20px; }
+.account-copy h2 { margin: 0; font-size: clamp(23px, 3vw, 34px); letter-spacing: -.035em; overflow-wrap: anywhere; }
+.account-copy > p:not(.kicker) { max-width: 590px; color: var(--muted); font-size: 12px; line-height: 1.7; margin: 12px 0 0; }
+.account-copy .secondary-button { margin-top: 18px; }
+.auth-form, .notification-form { display: grid; gap: 12px; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,.018); }
+.auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 4px; border-radius: 12px; background: rgba(255,255,255,.035); }
+.auth-tabs button { border: 0; border-radius: 9px; color: var(--muted); background: transparent; padding: 8px; cursor: pointer; }
+.auth-tabs button.active { color: #07100e; background: var(--accent); font-weight: 750; }
+.auth-form label { display: grid; gap: 7px; color: var(--muted); font-size: 10px; }
+.auth-form input, .notification-form > input { width: 100%; color: var(--text); border: 1px solid var(--line); background: #0b1714; border-radius: 10px; outline: none; padding: 11px 12px; }
+.auth-form input:focus, .notification-form > input:focus { border-color: rgba(101,230,190,.48); }
+.auth-form small { color: var(--muted); font-size: 9px; line-height: 1.5; }
+.notification-form > div { display: flex; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line); font-size: 11px; }
+.notification-form > div span { color: var(--accent); font-size: 9px; }
+.notification-form label { display: grid; grid-template-columns: auto 1fr; gap: 3px 9px; align-items: center; font-size: 11px; }
+.notification-form label input { accent-color: var(--accent); }
+.notification-form label small { grid-column: 2; color: var(--muted); font-size: 9px; }
+.notification-form label.unavailable { opacity: .5; }
+.auth-gate { display: grid; place-items: start; gap: 10px; padding: 28px; }
+.auth-gate strong { font-size: 20px; }
+.auth-gate p { color: var(--muted); font-size: 12px; margin: 0; }
+.auth-gate a { color: #07100e; background: var(--accent); border-radius: 999px; padding: 9px 13px; font-size: 10px; font-weight: 750; }
 
 .error-banner { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 20px; border: 1px solid rgba(255,124,140,.28); background: rgba(255,124,140,.08); border-radius: 16px; margin-bottom: 18px; }
 .error-banner div { display: flex; flex-direction: column; gap: 4px; }
@@ -266,12 +290,15 @@ footer strong { color: var(--text); font-size: 15px; }
   .method-grid { grid-template-columns: repeat(2, 1fr); gap: 34px 18px; }
   .news-grid { grid-template-columns: repeat(2, 1fr); }
   .derivatives-grid { grid-template-columns: repeat(2, 1fr); }
+  .account-panel { grid-template-columns: 1fr; gap: 24px; }
 }
 
 @media (max-width: 660px) {
   main { width: min(100% - 24px, 1220px); }
   .site-header { height: 72px; }
   .live-status { display: none; }
+  .account-link { max-width: 100px; }
+  .github-link { display: none; }
   .hero { padding: 54px 0 34px; min-height: 0; }
   .hero h1 { font-size: 44px; }
   .hero-copy { font-size: 15px; }

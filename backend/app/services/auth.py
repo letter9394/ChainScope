@@ -1,0 +1,96 @@
+from __future__ import annotations
+
+import base64
+import hashlib
+import hmac
+import json
+import os
+import time
+
+from sqlalchemy import select
+
+from app.database import Database, UserRow
+from app.models import AuthUser
+
+
+def _urlsafe_encode(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+
+def _urlsafe_decode(value: str) -> bytes:
+    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+
+
+def hash_password(password: str) -> str:
+    salt = os.urandom(16)
+    derived = hashlib.scrypt(password.encode("utf-8"), salt=salt, n=2**14, r=8, p=1, dklen=32)
+    return f"scrypt$16384$8$1${_urlsafe_encode(salt)}${_urlsafe_encode(derived)}"
+
+
+def verify_password(password: str, encoded: str) -> bool:
+    try:
+        algorithm, n, r, p, salt, expected = encoded.split("$", 5)
+        if algorithm != "scrypt":
+            return False
+        actual = hashlib.scrypt(
+            password.encode("utf-8"),
+            salt=_urlsafe_decode(salt),
+            n=int(n),
+            r=int(r),
+            p=int(p),
+            dklen=32,
+        )
+        return hmac.compare_digest(actual, _urlsafe_decode(expected))
+    except (ValueError, TypeError):
+        return False
+
+
+def create_session_token(user_id: int, secret: str, max_age_seconds: int) -> str:
+    payload = json.dumps(
+        {"sub": user_id, "exp": int(time.time()) + max_age_seconds},
+        separators=(",", ":"),
+    ).encode("utf-8")
+    encoded = _urlsafe_encode(payload)
+    signature = _urlsafe_encode(hmac.new(secret.encode("utf-8"), encoded.encode("ascii"), hashlib.sha256).digest())
+    return f"{encoded}.{signature}"
+
+
+def decode_session_token(token: str, secret: str) -> int | None:
+    try:
+        encoded, supplied_signature = token.split(".", 1)
+        expected_signature = _urlsafe_encode(
+            hmac.new(secret.encode("utf-8"), encoded.encode("ascii"), hashlib.sha256).digest()
+        )
+        if not hmac.compare_digest(supplied_signature, expected_signature):
+            return None
+        payload = json.loads(_urlsafe_decode(encoded))
+        if int(payload["exp"]) < int(time.time()):
+            return None
+        return int(payload["sub"])
+    except (ValueError, KeyError, TypeError, json.JSONDecodeError):
+        return None
+
+
+def user_model(row: UserRow) -> AuthUser:
+    return AuthUser(id=row.id, email=row.email, created_at=row.created_at.isoformat())
+
+
+class UserRepository:
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
+    def get_by_email(self, email: str) -> UserRow | None:
+        with self.database.session() as session:
+            return session.scalar(select(UserRow).where(UserRow.email == email.strip().lower()))
+
+    def get_by_id(self, user_id: int) -> UserRow | None:
+        with self.database.session() as session:
+            return session.get(UserRow, user_id)
+
+    def create(self, email: str, password: str) -> UserRow:
+        row = UserRow(email=email.strip().lower(), password_hash=hash_password(password))
+        with self.database.session() as session:
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+        return row

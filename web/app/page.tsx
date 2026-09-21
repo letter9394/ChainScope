@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AlertCenter } from "@/components/AlertCenter";
+import { AccountPanel } from "@/components/AccountPanel";
 import { DerivativesPanel } from "@/components/DerivativesPanel";
 import { MarketCard } from "@/components/MarketCard";
 import { NewsPanel } from "@/components/NewsPanel";
@@ -16,20 +17,28 @@ import {
   createAlertRule,
   deleteAlertRule,
   evaluateAlerts,
+  getCurrentUser,
   getAlertEvents,
   getAlertRules,
   getMarkets,
   getNews,
+  getNotificationSettings,
   getRisk,
   getWatchlist,
+  loginUser,
+  logoutUser,
+  registerUser,
   removeFromWatchlist,
+  updateNotificationSettings,
 } from "@/lib/api";
 import type {
   AlertEvent,
   AlertRule,
   AlertRuleInput,
+  AuthUser,
   MarketCoin,
   NewsResponse,
+  NotificationSettings,
   RiskAssessment,
 } from "@/lib/types";
 
@@ -49,6 +58,9 @@ export default function Home() {
   const [risk, setRisk] = useState<RiskAssessment | null>(null);
   const [news, setNews] = useState<NewsResponse | null>(null);
   const [watchlist, setWatchlist] = useState<string[]>([]);
+  const [user, setUser] = useState<AuthUser | null | undefined>(undefined);
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings | null>(null);
+  const [accountBusy, setAccountBusy] = useState(false);
   const [alertRules, setAlertRules] = useState<AlertRule[]>([]);
   const [alertEvents, setAlertEvents] = useState<AlertEvent[]>([]);
   const [alertsBusy, setAlertsBusy] = useState(false);
@@ -92,7 +104,21 @@ export default function Home() {
     setAlertEvents(events);
   }, []);
 
+  const loadPrivateData = useCallback(async (signal?: AbortSignal) => {
+    const [watchlistItems, rules, events, settings] = await Promise.all([
+      getWatchlist(signal),
+      getAlertRules(signal),
+      getAlertEvents(signal),
+      getNotificationSettings(signal),
+    ]);
+    setWatchlist(watchlistItems.map((item) => item.coin_id));
+    setAlertRules(rules);
+    setAlertEvents(events);
+    setNotificationSettings(settings);
+  }, []);
+
   const checkAlerts = useCallback(async () => {
+    if (!user) return;
     setAlertsBusy(true);
     try {
       await evaluateAlerts();
@@ -102,23 +128,83 @@ export default function Home() {
     } finally {
       setAlertsBusy(false);
     }
-  }, [loadAlertData]);
+  }, [loadAlertData, user]);
 
   useEffect(() => {
     const controller = new AbortController();
     void loadMarkets(controller.signal);
-    void getWatchlist(controller.signal)
-      .then((items) => setWatchlist(items.map((item) => item.coin_id)))
-      .catch(() => setWatchlist([]));
-    void checkAlerts();
     const marketRefreshTimer = window.setInterval(() => void loadMarkets(), MARKET_REFRESH_MS);
-    const alertRefreshTimer = window.setInterval(() => void checkAlerts(), ALERT_REFRESH_MS);
     return () => {
       controller.abort();
       window.clearInterval(marketRefreshTimer);
-      window.clearInterval(alertRefreshTimer);
     };
-  }, [checkAlerts, loadMarkets]);
+  }, [loadMarkets]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void getCurrentUser(controller.signal)
+      .then(async (currentUser) => {
+        setUser(currentUser);
+        await loadPrivateData(controller.signal);
+      })
+      .catch(() => {
+        setUser(null);
+        setWatchlist([]);
+        setAlertRules([]);
+        setAlertEvents([]);
+      });
+    return () => controller.abort();
+  }, [loadPrivateData]);
+
+  useEffect(() => {
+    if (!user) return;
+    const alertRefreshTimer = window.setInterval(() => {
+      void getAlertEvents().then(setAlertEvents).catch(() => undefined);
+    }, ALERT_REFRESH_MS);
+    return () => window.clearInterval(alertRefreshTimer);
+  }, [user]);
+
+  const authenticate = async (mode: "login" | "register", email: string, password: string) => {
+    setAccountBusy(true);
+    try {
+      const authenticated = mode === "login" ? await loginUser(email, password) : await registerUser(email, password);
+      setUser(authenticated);
+      await loadPrivateData();
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "登录失败");
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  const logout = async () => {
+    setAccountBusy(true);
+    try {
+      await logoutUser();
+      setUser(null);
+      setWatchlist([]);
+      setAlertRules([]);
+      setAlertEvents([]);
+      setNotificationSettings(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "退出登录失败");
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  const saveNotificationSettings = async (settings: Pick<NotificationSettings, "email_enabled" | "telegram_enabled" | "telegram_chat_id">) => {
+    setAccountBusy(true);
+    try {
+      setNotificationSettings(await updateNotificationSettings(settings));
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "通知设置保存失败");
+    } finally {
+      setAccountBusy(false);
+    }
+  };
 
   const createRule = async (input: AlertRuleInput) => {
     setAlertsBusy(true);
@@ -162,6 +248,11 @@ export default function Home() {
 
   const toggleWatchlist = async () => {
     if (!selectedCoin || watchlistBusy) return;
+    if (!user) {
+      setError("请先登录，再保存个人自选资产。");
+      document.querySelector("#account")?.scrollIntoView({ behavior: "smooth" });
+      return;
+    }
     setWatchlistBusy(true);
     try {
       if (watchlist.includes(selectedCoin.id)) {
@@ -223,6 +314,7 @@ export default function Home() {
         <div className={`live-status ${liveMarketStatus}`} role="status" aria-live="polite">
           <i /> {liveMarketStatus === "live" ? "实时行情已连接" : liveMarketStatus === "connecting" ? "正在连接实时行情" : "15秒轮询模式"}
         </div>
+        <a className="account-link" href="#account">{user ? user.email : "登录 / 注册"}</a>
         <a className="github-link" href="https://github.com/letter9394/ChainScope" target="_blank" rel="noreferrer">
           GitHub ↗
         </a>
@@ -243,6 +335,15 @@ export default function Home() {
           <span>行情更新</span><strong>{liveMarketStatus === "live" ? "约 1 秒实时推送" : "每 15 秒"}</strong>
         </div>
       </section>
+
+      <AccountPanel
+        user={user}
+        settings={notificationSettings}
+        busy={accountBusy}
+        onAuthenticate={authenticate}
+        onLogout={logout}
+        onSaveSettings={saveNotificationSettings}
+      />
 
       {error ? (
         <section className="error-banner" role="alert">
@@ -292,7 +393,7 @@ export default function Home() {
                   onClick={() => void toggleWatchlist()}
                   disabled={watchlistBusy}
                 >
-                  {watchlist.includes(selectedCoin.id) ? "★ 已加入自选" : "☆ 加入自选"}
+                  {!user ? "登录后加入自选" : watchlist.includes(selectedCoin.id) ? "★ 已加入自选" : "☆ 加入自选"}
                 </button>
               </div>
             ) : null}
@@ -309,6 +410,7 @@ export default function Home() {
       />
 
       <AlertCenter
+        authenticated={Boolean(user)}
         rules={alertRules}
         events={alertEvents}
         busy={alertsBusy}
