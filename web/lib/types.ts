@@ -143,10 +143,17 @@ export interface AuthUser {
 export interface NotificationSettings {
   in_app_enabled: boolean;
   email_enabled: boolean;
-  telegram_enabled: boolean;
-  telegram_chat_id: string | null;
   email_available: boolean;
-  telegram_available: boolean;
+  email_provider: string;
+  email_sender: string | null;
   schedule_seconds: number;
   schedule_mode: string;
+}
+
+export interface NotificationTestResult {
+  status: "sent";
+  recipient: string;
+  provider: string;
+  sent_at: string;
+  message: string;
 }

@@ -77,6 +77,8 @@ main { width: min(1220px, calc(100% - 40px)); margin: 0 auto; }
 .notification-form label input { accent-color: var(--accent); }
 .notification-form label small { grid-column: 2; color: var(--muted); font-size: 9px; }
 .notification-form label.unavailable { opacity: .5; }
+.email-provider-note { margin: 0; color: var(--muted); font-size: 10px; }
+.email-test-result { margin: 0; padding: 10px 12px; border: 1px solid rgba(101,230,190,.25); border-radius: 10px; color: var(--accent); background: rgba(101,230,190,.05); font-size: 10px; line-height: 1.55; }
 .auth-gate { display: grid; place-items: start; gap: 10px; padding: 28px; }
 .auth-gate strong { font-size: 20px; }
 .auth-gate p { color: var(--muted); font-size: 12px; margin: 0; }

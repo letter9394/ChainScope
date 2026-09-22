@@ -10,23 +10,30 @@ interface AccountPanelProps {
   busy: boolean;
   onAuthenticate: (mode: "login" | "register", email: string, password: string) => Promise<void>;
   onLogout: () => Promise<void>;
-  onSaveSettings: (settings: Pick<NotificationSettings, "email_enabled" | "telegram_enabled" | "telegram_chat_id">) => Promise<void>;
+  onSaveSettings: (settings: Pick<NotificationSettings, "email_enabled">) => Promise<void>;
+  onSendTestEmail: () => Promise<string>;
 }
 
-export function AccountPanel({ user, settings, busy, onAuthenticate, onLogout, onSaveSettings }: AccountPanelProps) {
+export function AccountPanel({ user, settings, busy, onAuthenticate, onLogout, onSaveSettings, onSendTestEmail }: AccountPanelProps) {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [emailEnabled, setEmailEnabled] = useState(false);
-  const [telegramEnabled, setTelegramEnabled] = useState(false);
-  const [chatId, setChatId] = useState("");
+  const [testMessage, setTestMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!settings) return;
     setEmailEnabled(settings.email_enabled);
-    setTelegramEnabled(settings.telegram_enabled);
-    setChatId(settings.telegram_chat_id ?? "");
   }, [settings]);
+
+  const testEmail = async () => {
+    setTestMessage(null);
+    try {
+      setTestMessage(await onSendTestEmail());
+    } catch {
+      setTestMessage("发送失败，请查看页面错误提示后重试。");
+    }
+  };
 
   if (user === undefined) {
     return <section className="account-panel panel" id="account"><p>正在读取登录状态…</p></section>;
@@ -64,19 +71,19 @@ export function AccountPanel({ user, settings, busy, onAuthenticate, onLogout, o
       </div>
       <form className="notification-form" onSubmit={(event) => {
         event.preventDefault();
-        void onSaveSettings({ email_enabled: emailEnabled, telegram_enabled: telegramEnabled, telegram_chat_id: chatId || null });
+        void onSaveSettings({ email_enabled: emailEnabled });
       }}>
         <div><strong>通知通道</strong><span>站内通知始终开启</span></div>
         <label className={!settings?.email_available ? "unavailable" : ""}>
           <input type="checkbox" checked={emailEnabled} disabled={!settings?.email_available} onChange={(event) => setEmailEnabled(event.target.checked)} /> 邮件通知
-          <small>{settings?.email_available ? "发送到登录邮箱" : "等待管理员配置 SMTP"}</small>
+          <small>{settings?.email_available ? `通过${settings.email_provider}发送到当前登录邮箱` : "等待部署者完成 SMTP 配置"}</small>
         </label>
-        <label className={!settings?.telegram_available ? "unavailable" : ""}>
-          <input type="checkbox" checked={telegramEnabled} disabled={!settings?.telegram_available} onChange={(event) => setTelegramEnabled(event.target.checked)} /> Telegram
-          <small>{settings?.telegram_available ? "需要你的 Chat ID" : "等待管理员配置 Bot Token"}</small>
-        </label>
-        {settings?.telegram_available ? <input aria-label="Telegram Chat ID" placeholder="Telegram Chat ID" value={chatId} onChange={(event) => setChatId(event.target.value)} /> : null}
+        {settings?.email_sender ? <p className="email-provider-note">发件地址：{settings.email_sender}</p> : null}
         <button className="primary-button" type="submit" disabled={busy || !settings}>{busy ? "保存中…" : "保存通知设置"}</button>
+        <button className="secondary-button" type="button" disabled={busy || !settings?.email_available} onClick={() => void testEmail()}>
+          {busy ? "发送中…" : "发送测试邮件"}
+        </button>
+        {testMessage ? <p className="email-test-result" role="status">{testMessage}</p> : null}
       </form>
     </section>
   );

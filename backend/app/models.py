@@ -172,13 +172,20 @@ class AuthUser(BaseModel):
 
 class NotificationSettingsUpdate(BaseModel):
     email_enabled: bool = False
-    telegram_enabled: bool = False
-    telegram_chat_id: str | None = Field(default=None, max_length=128)
 
 
 class NotificationSettingsResponse(NotificationSettingsUpdate):
     in_app_enabled: bool = True
     email_available: bool
-    telegram_available: bool
+    email_provider: str
+    email_sender: str | None = None
     schedule_seconds: int
     schedule_mode: str
+
+
+class NotificationTestResponse(BaseModel):
+    status: Literal["sent"]
+    recipient: str
+    provider: str
+    sent_at: str
+    message: str

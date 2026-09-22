@@ -67,6 +67,13 @@ def test_notification_settings_are_user_scoped(clients) -> None:
     assert response.status_code == 200
     assert response.json()["in_app_enabled"] is True
     assert response.json()["schedule_seconds"] == 60
+    assert response.json()["email_available"] is False
+    assert response.json()["email_provider"] == "尚未配置"
+    assert "telegram" not in response.json()
+
+    enabled = first.put("/api/notifications/settings", json={"email_enabled": True})
+    assert enabled.status_code == 409
+    assert first.post("/api/notifications/test-email").status_code == 409
 
 
 def test_rejects_bad_credentials(clients) -> None:

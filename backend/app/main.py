@@ -1,7 +1,9 @@
 import asyncio
 import os
 from contextlib import asynccontextmanager, suppress
+from datetime import UTC, datetime
 from functools import lru_cache
+from time import monotonic
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,7 +16,7 @@ from app.models import (
     AlertEvaluationResponse, AlertEvent, AlertRule, AlertRuleCreate, AuthCredentials,
     AuthUser, DerivativesSnapshot, HealthResponse, HistoryPoint, MarketCoin,
     NewsResponse, NewsTranslationRequest, NewsTranslationResponse,
-    NotificationSettingsResponse, NotificationSettingsUpdate, RiskAssessment,
+    NotificationSettingsResponse, NotificationSettingsUpdate, NotificationTestResponse, RiskAssessment,
     WatchlistItem,
 )
 from app.services.alerts import AlertRepository, evaluate_alert_rules
@@ -24,10 +26,16 @@ from app.services.auth import (
 from app.services.derivatives import get_derivatives_snapshot
 from app.services.market import CoinGeckoClient, MarketDataError, SUPPORTED_COINS
 from app.services.news import get_news, translate_news
-from app.services.notifications import NotificationRepository, preference_response
+from app.services.notifications import (
+    NotificationRepository, NotificationService, email_is_configured,
+    email_provider, preference_response,
+)
 from app.services.risk import assess_risk
 from app.services.scheduler import run_alert_scheduler
 from app.services.watchlist import WatchlistRepository
+
+
+_last_test_email_sent: dict[int, float] = {}
 
 
 @lru_cache
@@ -322,7 +330,6 @@ async def evaluate_alerts(
 ) -> AlertEvaluationResponse:
     try:
         result = await evaluate_alert_rules(repository, client, settings)
-        from app.services.notifications import NotificationService
         await NotificationService(database, settings).deliver(user.id, result.triggered_events)
         return result
     except MarketDataError as exc:
@@ -345,15 +352,36 @@ async def update_notification_settings(
     database: Database = Depends(get_database),
     settings: Settings = Depends(get_settings),
 ) -> NotificationSettingsResponse:
-    if payload.email_enabled and not (settings.smtp_host and settings.smtp_from_email):
-        raise HTTPException(status_code=409, detail="管理员尚未配置邮件发送服务")
-    if payload.telegram_enabled:
-        if not settings.telegram_bot_token:
-            raise HTTPException(status_code=409, detail="管理员尚未配置 Telegram Bot")
-        if not payload.telegram_chat_id:
-            raise HTTPException(status_code=422, detail="启用 Telegram 时必须填写 Chat ID")
+    if payload.email_enabled and not email_is_configured(settings):
+        raise HTTPException(status_code=409, detail="管理员尚未完整配置邮件发送服务")
     row = NotificationRepository(database, user.id).update(payload)
     return preference_response(row, settings)
+
+
+@app.post("/api/notifications/test-email", response_model=NotificationTestResponse, tags=["notifications"])
+async def send_test_email(
+    user: UserRow = Depends(get_current_user),
+    database: Database = Depends(get_database),
+    settings: Settings = Depends(get_settings),
+) -> NotificationTestResponse:
+    if not email_is_configured(settings):
+        raise HTTPException(status_code=409, detail="管理员尚未完整配置邮件发送服务")
+    now = monotonic()
+    elapsed = now - _last_test_email_sent.get(user.id, 0)
+    if elapsed < 60:
+        raise HTTPException(status_code=429, detail=f"请在 {int(60 - elapsed) + 1} 秒后再次测试")
+    try:
+        await NotificationService(database, settings).send_test_email(user.email)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"测试邮件发送失败：{str(exc)[:300]}") from exc
+    _last_test_email_sent[user.id] = monotonic()
+    return NotificationTestResponse(
+        status="sent",
+        recipient=user.email,
+        provider=email_provider(settings),
+        sent_at=datetime.now(UTC).isoformat(),
+        message="测试邮件已发出，请检查收件箱和垃圾邮件文件夹。",
+    )
 
 
 static_directory = os.getenv("STATIC_DIR")

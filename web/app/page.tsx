@@ -29,6 +29,7 @@ import {
   logoutUser,
   registerUser,
   removeFromWatchlist,
+  sendTestEmail,
   updateNotificationSettings,
 } from "@/lib/api";
 import type {
@@ -194,13 +195,28 @@ export default function Home() {
     }
   };
 
-  const saveNotificationSettings = async (settings: Pick<NotificationSettings, "email_enabled" | "telegram_enabled" | "telegram_chat_id">) => {
+  const saveNotificationSettings = async (settings: Pick<NotificationSettings, "email_enabled">) => {
     setAccountBusy(true);
     try {
       setNotificationSettings(await updateNotificationSettings(settings));
       setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "通知设置保存失败");
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  const testEmailNotification = async () => {
+    setAccountBusy(true);
+    try {
+      const result = await sendTestEmail();
+      setError(null);
+      return result.message;
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : "测试邮件发送失败";
+      setError(message);
+      throw new Error(message);
     } finally {
       setAccountBusy(false);
     }
@@ -343,6 +359,7 @@ export default function Home() {
         onAuthenticate={authenticate}
         onLogout={logout}
         onSaveSettings={saveNotificationSettings}
+        onSendTestEmail={testEmailNotification}
       />
 
       {error ? (

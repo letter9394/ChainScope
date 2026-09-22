@@ -2,7 +2,7 @@
 
 [English](README_EN.md) · [学习笔记](docs/LEARNING_NOTES.md) · [用户系统说明](docs/USER_SYSTEM.md) · [贡献指南](CONTRIBUTING.md)
 
-ChainScope 是一个面向学习与作品集展示的 Web3 智能市场分析与风险预警平台。它把加密资产与黄金现货行情、专业 K 线、中英双语新闻和可解释风险指标放在同一张仪表盘中。v1.0 已加入邮箱账号、用户数据隔离、PostgreSQL 持久化、后台定时检查、站内通知，并预留邮件与 Telegram 推送通道。
+ChainScope 是一个面向学习与作品集展示的 Web3 智能市场分析与风险预警平台。它把加密资产与黄金现货行情、专业 K 线、中英双语新闻和可解释风险指标放在同一张仪表盘中。v1.1 已加入邮箱账号、用户数据隔离、PostgreSQL 持久化、后台定时检查、站内通知和 SMTP 邮件预警。
 
 > 当前版本是可独立运行的 MVP，不连接交易账户，不执行买卖，也不构成投资建议。
 
@@ -22,7 +22,7 @@ ChainScope 是一个面向学习与作品集展示的 Web3 智能市场分析与
 - PostgreSQL 按用户隔离自选、预警规则、事件与通知设置；本地开发可退回 SQLite
 - 自定义“风险分”或“24 小时涨跌幅”阈值，服务器在线时每 60 秒后台检查
 - 仅在安全状态首次越线时生成事件，避免重复通知；支持确认和历史追溯
-- 站内通知默认可用；SMTP 和 Telegram Bot 配置完成后可开启站外推送
+- 站内通知默认可用；支持 QQ、网易和自定义 SMTP 邮件预警及一键测试
 - 对上游接口提供缓存、超时、重试和友好错误处理
 - 提供自动化测试、Docker 配置和 GitHub Actions 持续集成
 
@@ -126,9 +126,12 @@ DATABASE_URL=postgresql+psycopg://user:password@host:5432/chainscope
 SESSION_SECRET=一段足够长的随机字符串
 BACKGROUND_ALERTS_ENABLED=true
 ALERT_CHECK_SECONDS=60
-TELEGRAM_BOT_TOKEN=
 SMTP_HOST=
+SMTP_PORT=465
+SMTP_USERNAME=
+SMTP_PASSWORD=邮箱授权码，不是登录密码
 SMTP_FROM_EMAIL=
+SMTP_SECURITY=ssl
 ```
 
 不要把真实密钥提交到 GitHub。配置 AI 密钥后，新闻模块会调用兼容的 Chat Completions 接口；否则使用本地关键词规则。
@@ -160,7 +163,8 @@ pnpm build
 | POST | `/api/alerts/evaluate` | 用最新数据检查全部规则 |
 | GET | `/api/alerts/events` | 查询预警事件记录 |
 | POST | `/api/alerts/events/{event_id}/acknowledge` | 确认一条预警事件 |
-| GET / PUT | `/api/notifications/settings` | 查询或修改邮件、Telegram 通知设置 |
+| GET / PUT | `/api/notifications/settings` | 查询或修改邮件通知设置 |
+| POST | `/api/notifications/test-email` | 向当前登录邮箱发送测试邮件 |
 
 ## 目录结构
 
@@ -183,7 +187,7 @@ ChainScope/
 - 新闻翻译由机器生成并按需调用第三方服务，应以英文原文为准
 - 免费 Web Service 休眠期间后台预警不会运行；唤醒后自动恢复
 - 免费 PostgreSQL 有 30 天期限，正式环境需要付费实例或迁移到长期数据库
-- 邮件与 Telegram 需要部署者提供 SMTP / Bot Token，未配置时仍可使用站内通知
+- 邮件需要部署者提供 SMTP 邮箱授权码，未配置时仍可使用站内通知
 - 免费数据不提供可靠的历史全市场爆仓回补；实时强平仅从页面建立 WebSocket 后累计
 - 链上大额转账和交易所净流入需要可靠的链上索引服务/API Key，当前不使用伪造数据代替
 - 可进一步加入邮箱验证、忘记密码、限流、链上数据供应商和策略回测

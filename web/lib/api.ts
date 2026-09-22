@@ -9,6 +9,7 @@ import type {
   NewsResponse,
   NewsTranslation,
   NotificationSettings,
+  NotificationTestResult,
   RiskAssessment,
   WatchlistItem,
 } from "./types";
@@ -186,9 +187,14 @@ export async function logoutUser(): Promise<void> {
 export const getNotificationSettings = (signal?: AbortSignal) =>
   apiRequest<NotificationSettings>("/api/notifications/settings", signal);
 
-export const updateNotificationSettings = (settings: Pick<NotificationSettings, "email_enabled" | "telegram_enabled" | "telegram_chat_id">) =>
+export const updateNotificationSettings = (settings: Pick<NotificationSettings, "email_enabled">) =>
   apiRequest<NotificationSettings>("/api/notifications/settings", undefined, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(settings),
+  });
+
+export const sendTestEmail = () =>
+  apiRequest<NotificationTestResult>("/api/notifications/test-email", undefined, {
+    method: "POST",
   });

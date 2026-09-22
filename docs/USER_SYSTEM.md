@@ -19,7 +19,7 @@
   └─ 找出所有启用规则的用户
   └─ 请求最新行情 / 风险分
   └─ 只在“安全 → 越线”时生成一次事件
-  └─ 记录站内通知，并按配置尝试邮件 / Telegram
+  └─ 记录站内通知，并按配置尝试 SMTP 邮件
 ```
 
 ## 安全设计
@@ -34,18 +34,26 @@
 
 后台调度器和 Web 服务运行在同一进程中，不额外产生 Render Cron Job 费用。免费 Web Service 休眠时调度也会暂停；收到访问并唤醒后自动恢复。Render 免费 PostgreSQL 当前还有 30 天期限，因此正式长期服务应升级数据库或迁移到其他长期 PostgreSQL。
 
-## 开启站外通知
+## 开启邮箱通知
 
 不配置任何密钥时，站内事件仍可正常工作。站外通知需要在 Render 的 Environment 中添加：
 
 ```env
-TELEGRAM_BOT_TOKEN=
 SMTP_HOST=
-SMTP_PORT=587
+SMTP_PORT=465
 SMTP_USERNAME=
 SMTP_PASSWORD=
 SMTP_FROM_EMAIL=
-SMTP_USE_TLS=true
+SMTP_SECURITY=ssl
+SMTP_TIMEOUT_SECONDS=15
 ```
 
-配置完成并重新部署后，用户可在账号面板中启用相应通道。Telegram 还需要用户填写自己的 Chat ID。
+`SMTP_PASSWORD` 必须填写邮箱服务生成的客户端授权码，不要填写邮箱登录密码，也不要提交到 GitHub。
+
+| 发件邮箱 | SMTP_HOST | 端口 | SMTP_SECURITY |
+| --- | --- | ---: | --- |
+| QQ 邮箱 | `smtp.qq.com` | 465 | `ssl` |
+| 网易 163 | `smtp.163.com` | 465 | `ssl` |
+| 网易 126 | `smtp.126.com` | 465 | `ssl` |
+
+配置完成并重新部署后，用户可在账号面板中开启邮件通知，并点击“发送测试邮件”。测试邮件永远只发送到当前登录账号的注册邮箱，且同一用户每分钟最多发送一次。

@@ -31,13 +31,13 @@ class Settings(BaseSettings):
     alert_check_seconds: int = 60
     background_alerts_enabled: bool = True
     public_app_url: str = "http://localhost:3100"
-    telegram_bot_token: str | None = None
     smtp_host: str | None = None
     smtp_port: int = 587
     smtp_username: str | None = None
     smtp_password: str | None = None
     smtp_from_email: str | None = None
-    smtp_use_tls: bool = True
+    smtp_security: str = "starttls"
+    smtp_timeout_seconds: float = 15.0
     news_rss_url: str = "https://www.coindesk.com/arc/outboundfeeds/rss/"
     news_cache_seconds: int = 300
     google_translation_api_url: str = "https://translate.googleapis.com/translate_a/single"
