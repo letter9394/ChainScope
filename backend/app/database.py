@@ -75,6 +75,12 @@ class NotificationPreferenceRow(Base):
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     email_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Kept only for compatibility with databases created before email-only v1.1.
+    # These fields are never exposed or used and are always written disabled.
+    legacy_telegram_enabled: Mapped[bool] = mapped_column("telegram_enabled", Boolean, default=False)
+    legacy_telegram_chat_id: Mapped[str | None] = mapped_column(
+        "telegram_chat_id", String(128), nullable=True
+    )
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 

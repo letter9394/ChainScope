@@ -53,7 +53,11 @@ class NotificationRepository:
         with self.database.session() as session:
             row = session.get(NotificationPreferenceRow, self.user_id)
             if row is None:
-                row = NotificationPreferenceRow(user_id=self.user_id)
+                row = NotificationPreferenceRow(
+                    user_id=self.user_id,
+                    legacy_telegram_enabled=False,
+                    legacy_telegram_chat_id=None,
+                )
                 session.add(row)
                 session.commit()
                 session.refresh(row)
@@ -63,9 +67,15 @@ class NotificationRepository:
         with self.database.session() as session:
             row = session.get(NotificationPreferenceRow, self.user_id)
             if row is None:
-                row = NotificationPreferenceRow(user_id=self.user_id)
+                row = NotificationPreferenceRow(
+                    user_id=self.user_id,
+                    legacy_telegram_enabled=False,
+                    legacy_telegram_chat_id=None,
+                )
                 session.add(row)
             row.email_enabled = payload.email_enabled
+            row.legacy_telegram_enabled = False
+            row.legacy_telegram_chat_id = None
             session.commit()
             session.refresh(row)
             return row
