@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from functools import lru_cache
 from time import monotonic
+from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,12 +17,14 @@ from app.models import (
     AlertEvaluationResponse, AlertEvent, AlertRule, AlertRuleCreate, AuthCredentials,
     AuthUser, DerivativesSnapshot, HealthResponse, HistoryPoint, MarketCoin,
     NewsResponse, NewsTranslationRequest, NewsTranslationResponse,
-    NotificationSettingsResponse, NotificationSettingsUpdate, NotificationTestResponse, RiskAssessment,
+    NotificationSettingsResponse, NotificationSettingsUpdate, NotificationTestResponse,
+    PasswordResetConfirm, PasswordResetRequest, PasswordResetRequestResponse, RiskAssessment,
     WatchlistItem,
 )
 from app.services.alerts import AlertRepository, evaluate_alert_rules
 from app.services.auth import (
-    UserRepository, create_session_token, decode_session_token, user_model, verify_password,
+    UserRepository, create_password_reset_token, create_session_token,
+    decode_password_reset_token, decode_session_token, user_model, verify_password,
 )
 from app.services.derivatives import get_derivatives_snapshot
 from app.services.market import CoinGeckoClient, MarketDataError, SUPPORTED_COINS
@@ -36,6 +39,7 @@ from app.services.watchlist import WatchlistRepository
 
 
 _last_test_email_sent: dict[int, float] = {}
+_last_password_reset_requested: dict[str, float] = {}
 
 
 @lru_cache
@@ -147,6 +151,55 @@ async def login(
     user = UserRepository(database).get_by_email(payload.email)
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="邮箱或密码错误")
+    _set_session_cookie(response, user.id, settings)
+    return user_model(user)
+
+
+@app.post(
+    "/api/auth/password-reset/request",
+    response_model=PasswordResetRequestResponse,
+    tags=["auth"],
+)
+async def request_password_reset(
+    payload: PasswordResetRequest,
+    settings: Settings = Depends(get_settings),
+    database: Database = Depends(get_database),
+) -> PasswordResetRequestResponse:
+    generic_message = "如果该邮箱已注册，重置邮件将在几分钟内送达。"
+    now = monotonic()
+    if now - _last_password_reset_requested.get(payload.email, 0) < 60:
+        return PasswordResetRequestResponse(message=generic_message)
+    _last_password_reset_requested[payload.email] = now
+
+    user = UserRepository(database).get_by_email(payload.email)
+    if user is None:
+        return PasswordResetRequestResponse(message=generic_message)
+    if not email_is_configured(settings):
+        raise HTTPException(status_code=503, detail="邮件服务尚未配置完成，请稍后再试")
+
+    token = create_password_reset_token(user, settings.session_secret, settings.password_reset_max_age_seconds)
+    reset_url = f"{settings.public_app_url.rstrip('/')}/?reset_token={quote(token)}#account"
+    try:
+        await NotificationService(database, settings).send_password_reset_email(user.email, reset_url)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"重置邮件发送失败：{str(exc)[:240]}") from exc
+    return PasswordResetRequestResponse(message=generic_message)
+
+
+@app.post("/api/auth/password-reset/confirm", response_model=AuthUser, tags=["auth"])
+async def confirm_password_reset(
+    payload: PasswordResetConfirm,
+    response: Response,
+    settings: Settings = Depends(get_settings),
+    database: Database = Depends(get_database),
+) -> AuthUser:
+    decoded = decode_password_reset_token(payload.token, settings.session_secret)
+    if decoded is None:
+        raise HTTPException(status_code=400, detail="重置链接无效或已过期，请重新申请")
+    user_id, fingerprint = decoded
+    user = UserRepository(database).reset_password(user_id, fingerprint, payload.password)
+    if user is None:
+        raise HTTPException(status_code=400, detail="重置链接已使用或已失效，请重新申请")
     _set_session_cookie(response, user.id, settings)
     return user_model(user)
 

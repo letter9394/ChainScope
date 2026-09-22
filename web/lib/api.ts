@@ -10,6 +10,7 @@ import type {
   NewsTranslation,
   NotificationSettings,
   NotificationTestResult,
+  PasswordResetRequestResult,
   RiskAssessment,
   WatchlistItem,
 } from "./types";
@@ -174,6 +175,20 @@ export const loginUser = (email: string, password: string) =>
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
+  });
+
+export const requestPasswordReset = (email: string) =>
+  apiRequest<PasswordResetRequestResult>("/api/auth/password-reset/request", undefined, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+
+export const confirmPasswordReset = (token: string, password: string) =>
+  apiRequest<AuthUser>("/api/auth/password-reset/confirm", undefined, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, password }),
   });
 
 export async function logoutUser(): Promise<void> {

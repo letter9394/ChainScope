@@ -170,6 +170,27 @@ class AuthUser(BaseModel):
     created_at: str
 
 
+class PasswordResetRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=320)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized.count("@") != 1 or "." not in normalized.rsplit("@", 1)[1]:
+            raise ValueError("请输入有效的邮箱地址")
+        return normalized
+
+
+class PasswordResetConfirm(BaseModel):
+    token: str = Field(min_length=20, max_length=2048)
+    password: str = Field(min_length=8, max_length=128)
+
+
+class PasswordResetRequestResponse(BaseModel):
+    message: str
+
+
 class NotificationSettingsUpdate(BaseModel):
     email_enabled: bool = False
 

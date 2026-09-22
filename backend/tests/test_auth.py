@@ -1,4 +1,6 @@
 from pathlib import Path
+import re
+from urllib.parse import unquote
 
 import pytest
 from fastapi.testclient import TestClient
@@ -6,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.config import Settings, get_settings
 from app.database import Database
 from app.main import app, get_database
+from app.services.notifications import NotificationService
 
 
 @pytest.fixture
@@ -83,3 +86,69 @@ def test_rejects_bad_credentials(clients) -> None:
         json={"email": "not-an-email", "password": "short"},
     )
     assert response.status_code == 422
+
+
+def test_password_reset_email_preserves_account_data(tmp_path: Path, monkeypatch) -> None:
+    database = Database(str(tmp_path / "password-reset.db"))
+    settings = Settings(
+        chain_scope_env="development",
+        session_secret="password-reset-test-secret",
+        background_alerts_enabled=False,
+        public_app_url="https://chainscope.example",
+        smtp_host="smtp.qq.com",
+        smtp_port=465,
+        smtp_security="ssl",
+        smtp_username="sender@qq.com",
+        smtp_password="authorization-code",
+        smtp_from_email="sender@qq.com",
+    )
+    sent_messages = []
+    monkeypatch.setattr(
+        NotificationService,
+        "_send_message_sync",
+        lambda _service, message: sent_messages.append(message),
+    )
+    app.dependency_overrides[get_database] = lambda: database
+    app.dependency_overrides[get_settings] = lambda: settings
+    client = TestClient(app)
+    try:
+        assert client.post(
+            "/api/auth/register",
+            json={"email": "recover@example.com", "password": "old-password-1"},
+        ).status_code == 201
+        assert client.post("/api/watchlist/bitcoin").status_code == 200
+        assert client.post("/api/auth/logout").status_code == 204
+
+        requested = client.post(
+            "/api/auth/password-reset/request",
+            json={"email": "recover@example.com"},
+        )
+        assert requested.status_code == 200
+        assert len(sent_messages) == 1
+        plain_body = sent_messages[0].get_body(preferencelist=("plain",)).get_content()
+        match = re.search(r"reset_token=([^\s#]+)#account", plain_body)
+        assert match is not None
+        token = unquote(match.group(1))
+
+        confirmed = client.post(
+            "/api/auth/password-reset/confirm",
+            json={"token": token, "password": "new-password-2"},
+        )
+        assert confirmed.status_code == 200
+        assert client.get("/api/watchlist").json()[0]["coin_id"] == "bitcoin"
+        assert client.post("/api/auth/logout").status_code == 204
+        assert client.post(
+            "/api/auth/login",
+            json={"email": "recover@example.com", "password": "old-password-1"},
+        ).status_code == 401
+        assert client.post(
+            "/api/auth/login",
+            json={"email": "recover@example.com", "password": "new-password-2"},
+        ).status_code == 200
+        assert client.post(
+            "/api/auth/password-reset/confirm",
+            json={"token": token, "password": "another-password-3"},
+        ).status_code == 400
+    finally:
+        app.dependency_overrides.pop(get_database, None)
+        app.dependency_overrides.pop(get_settings, None)

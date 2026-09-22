@@ -140,6 +140,10 @@ export interface AuthUser {
   created_at: string;
 }
 
+export interface PasswordResetRequestResult {
+  message: string;
+}
+
 export interface NotificationSettings {
   in_app_enabled: boolean;
   email_enabled: boolean;

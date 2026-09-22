@@ -45,6 +45,43 @@ def verify_password(password: str, encoded: str) -> bool:
         return False
 
 
+def password_fingerprint(encoded: str) -> str:
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:24]
+
+
+def create_password_reset_token(user: UserRow, secret: str, max_age_seconds: int) -> str:
+    payload = json.dumps(
+        {
+            "sub": user.id,
+            "exp": int(time.time()) + max_age_seconds,
+            "purpose": "password_reset",
+            "pwd": password_fingerprint(user.password_hash),
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+    encoded = _urlsafe_encode(payload)
+    signature = _urlsafe_encode(
+        hmac.new(secret.encode("utf-8"), encoded.encode("ascii"), hashlib.sha256).digest()
+    )
+    return f"{encoded}.{signature}"
+
+
+def decode_password_reset_token(token: str, secret: str) -> tuple[int, str] | None:
+    try:
+        encoded, supplied_signature = token.split(".", 1)
+        expected_signature = _urlsafe_encode(
+            hmac.new(secret.encode("utf-8"), encoded.encode("ascii"), hashlib.sha256).digest()
+        )
+        if not hmac.compare_digest(supplied_signature, expected_signature):
+            return None
+        payload = json.loads(_urlsafe_decode(encoded))
+        if payload.get("purpose") != "password_reset" or int(payload["exp"]) < int(time.time()):
+            return None
+        return int(payload["sub"]), str(payload["pwd"])
+    except (ValueError, KeyError, TypeError, json.JSONDecodeError):
+        return None
+
+
 def create_session_token(user_id: int, secret: str, max_age_seconds: int) -> str:
     payload = json.dumps(
         {"sub": user_id, "exp": int(time.time()) + max_age_seconds},
@@ -94,3 +131,15 @@ class UserRepository:
             session.commit()
             session.refresh(row)
         return row
+
+    def reset_password(self, user_id: int, expected_fingerprint: str, password: str) -> UserRow | None:
+        with self.database.session() as session:
+            row = session.get(UserRow, user_id)
+            if row is None or not hmac.compare_digest(
+                password_fingerprint(row.password_hash), expected_fingerprint
+            ):
+                return None
+            row.password_hash = hash_password(password)
+            session.commit()
+            session.refresh(row)
+            return row

@@ -10,7 +10,7 @@ ChainScope is a full-stack Web3 market intelligence and risk alert platform buil
 - Transparent 0–100 score based on volatility, maximum drawdown, volume anomaly, and momentum
 - Live CoinDesk news with source links, sentiment labels, and on-demand English-to-Chinese translation
 - Optional OpenAI-compatible news analysis with an honest rule-based fallback
-- Signed HttpOnly sessions and scrypt password hashes
+- Signed HttpOnly sessions, scrypt password hashes, and one-time email password recovery
 - Per-user watchlists, rules, events, and notification preferences backed by PostgreSQL (SQLite fallback for local development)
 - Threshold rules for risk score and 24-hour price change, checked every 60 seconds while the server is awake
 - Transition-based alert events with acknowledgement and history, without repeated notification spam

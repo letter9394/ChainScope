@@ -179,6 +179,29 @@ class NotificationService:
         )
         await asyncio.to_thread(self._send_message_sync, message)
 
+    async def send_password_reset_email(self, recipient: str, reset_url: str) -> None:
+        self._require_configuration()
+        safe_url = html.escape(reset_url, quote=True)
+        message = self._base_message(
+            recipient=recipient,
+            subject="[ChainScope] 重置登录密码",
+            plain=(
+                "你正在重置 ChainScope 登录密码。\n\n"
+                f"请在 30 分钟内打开以下链接：\n{reset_url}\n\n"
+                "如果不是你本人操作，请忽略这封邮件，原密码不会改变。"
+            ),
+            html_body=(
+                "<h2 style='margin:0 0 16px;color:#153c32'>重置 ChainScope 登录密码</h2>"
+                "<p>请在 30 分钟内点击下面的按钮设置新密码：</p>"
+                "<p><a style='display:inline-block;padding:12px 20px;background:#36cfa5;"
+                "color:#08251d;text-decoration:none;border-radius:24px;font-weight:700' "
+                f"href='{safe_url}'>设置新密码</a></p>"
+                "<p>如果不是你本人操作，请忽略这封邮件，原密码不会改变。</p>"
+                "<p style='color:#667b74;font-size:12px'>链接使用一次后自动失效。</p>"
+            ),
+        )
+        await asyncio.to_thread(self._send_message_sync, message)
+
     async def _send_alert_email(self, recipient: str, event: AlertEvent) -> None:
         self._require_configuration()
         message = self._base_message(

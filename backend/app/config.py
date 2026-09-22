@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     session_secret: str = "change-this-development-secret"
     session_cookie_name: str = "chainscope_session"
     session_max_age_seconds: int = 60 * 60 * 24 * 30
+    password_reset_max_age_seconds: int = 30 * 60
     alert_check_seconds: int = 60
     background_alerts_enabled: bool = True
     public_app_url: str = "http://localhost:3100"

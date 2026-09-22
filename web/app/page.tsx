@@ -15,6 +15,7 @@ import {
   addToWatchlist,
   acknowledgeAlertEvent,
   createAlertRule,
+  confirmPasswordReset,
   deleteAlertRule,
   evaluateAlerts,
   getCurrentUser,
@@ -28,6 +29,7 @@ import {
   loginUser,
   logoutUser,
   registerUser,
+  requestPasswordReset,
   removeFromWatchlist,
   sendTestEmail,
   updateNotificationSettings,
@@ -62,6 +64,7 @@ export default function Home() {
   const [user, setUser] = useState<AuthUser | null | undefined>(undefined);
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings | null>(null);
   const [accountBusy, setAccountBusy] = useState(false);
+  const [passwordResetToken, setPasswordResetToken] = useState<string | null>(null);
   const [alertRules, setAlertRules] = useState<AlertRule[]>([]);
   const [alertEvents, setAlertEvents] = useState<AlertEvent[]>([]);
   const [alertsBusy, setAlertsBusy] = useState(false);
@@ -71,6 +74,10 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const liveMarketStatus = useLiveCryptoPrices(setMarkets);
   const liquidationStats = useLiquidationStream(selectedId);
+
+  useEffect(() => {
+    setPasswordResetToken(new URLSearchParams(window.location.search).get("reset_token"));
+  }, []);
 
   const selectedCoin = useMemo(
     () => markets.find((coin) => coin.id === selectedId) ?? markets[0],
@@ -174,6 +181,45 @@ export default function Home() {
       setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "登录失败");
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  const clearPasswordResetToken = useCallback(() => {
+    setPasswordResetToken(null);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("reset_token");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}#account`);
+  }, []);
+
+  const sendPasswordReset = async (email: string) => {
+    setAccountBusy(true);
+    try {
+      const result = await requestPasswordReset(email);
+      setError(null);
+      return result.message;
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : "重置邮件发送失败";
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  const resetPassword = async (token: string, password: string) => {
+    setAccountBusy(true);
+    try {
+      const authenticated = await confirmPasswordReset(token, password);
+      setUser(authenticated);
+      clearPasswordResetToken();
+      await loadPrivateData();
+      setError(null);
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : "密码重置失败";
+      setError(message);
+      throw new Error(message);
     } finally {
       setAccountBusy(false);
     }
@@ -356,7 +402,11 @@ export default function Home() {
         user={user}
         settings={notificationSettings}
         busy={accountBusy}
+        passwordResetToken={passwordResetToken}
         onAuthenticate={authenticate}
+        onRequestPasswordReset={sendPasswordReset}
+        onConfirmPasswordReset={resetPassword}
+        onClearPasswordResetToken={clearPasswordResetToken}
         onLogout={logout}
         onSaveSettings={saveNotificationSettings}
         onSendTestEmail={testEmailNotification}
