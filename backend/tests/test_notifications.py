@@ -65,6 +65,7 @@ def test_logged_in_user_can_enable_and_test_email(tmp_path: Path, monkeypatch) -
     app.dependency_overrides[get_database] = lambda: database
     app.dependency_overrides[get_settings] = lambda: settings
     monkeypatch.setattr(NotificationService, "_send_message_sync", lambda self, message: None)
+    monkeypatch.setattr("app.main.monotonic", lambda: 10.0)
     _last_test_email_sent.clear()
     client = TestClient(app)
     try:

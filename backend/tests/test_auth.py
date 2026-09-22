@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings, get_settings
 from app.database import Database
-from app.main import app, get_database
+from app.main import _last_password_reset_requested, app, get_database
 from app.services.notifications import NotificationService
 
 
@@ -108,6 +108,8 @@ def test_password_reset_email_preserves_account_data(tmp_path: Path, monkeypatch
         "_send_message_sync",
         lambda _service, message: sent_messages.append(message),
     )
+    monkeypatch.setattr("app.main.monotonic", lambda: 10.0)
+    _last_password_reset_requested.clear()
     app.dependency_overrides[get_database] = lambda: database
     app.dependency_overrides[get_settings] = lambda: settings
     client = TestClient(app)
@@ -152,3 +154,4 @@ def test_password_reset_email_preserves_account_data(tmp_path: Path, monkeypatch
     finally:
         app.dependency_overrides.pop(get_database, None)
         app.dependency_overrides.pop(get_settings, None)
+        _last_password_reset_requested.clear()

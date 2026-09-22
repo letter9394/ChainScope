@@ -167,7 +167,8 @@ async def request_password_reset(
 ) -> PasswordResetRequestResponse:
     generic_message = "如果该邮箱已注册，重置邮件将在几分钟内送达。"
     now = monotonic()
-    if now - _last_password_reset_requested.get(payload.email, 0) < 60:
+    last_requested = _last_password_reset_requested.get(payload.email)
+    if last_requested is not None and now - last_requested < 60:
         return PasswordResetRequestResponse(message=generic_message)
     _last_password_reset_requested[payload.email] = now
 
@@ -420,8 +421,9 @@ async def send_test_email(
     if not email_is_configured(settings):
         raise HTTPException(status_code=409, detail="管理员尚未完整配置邮件发送服务")
     now = monotonic()
-    elapsed = now - _last_test_email_sent.get(user.id, 0)
-    if elapsed < 60:
+    last_sent = _last_test_email_sent.get(user.id)
+    elapsed = now - last_sent if last_sent is not None else None
+    if elapsed is not None and elapsed < 60:
         raise HTTPException(status_code=429, detail=f"请在 {int(60 - elapsed) + 1} 秒后再次测试")
     try:
         await NotificationService(database, settings).send_test_email(user.email)
