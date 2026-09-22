@@ -6,6 +6,7 @@ import smtplib
 from email.message import EmailMessage
 from typing import Awaitable, Callable
 
+import httpx
 from sqlalchemy import select
 
 from app.config import Settings
@@ -21,7 +22,11 @@ SMTP_PROVIDERS = {
 }
 
 
-def email_is_configured(settings: Settings) -> bool:
+def brevo_is_configured(settings: Settings) -> bool:
+    return bool(settings.brevo_api_key and settings.brevo_sender_email)
+
+
+def smtp_is_configured(settings: Settings) -> bool:
     return bool(
         settings.smtp_host
         and settings.smtp_from_email
@@ -30,10 +35,22 @@ def email_is_configured(settings: Settings) -> bool:
     )
 
 
+def email_is_configured(settings: Settings) -> bool:
+    return brevo_is_configured(settings) or smtp_is_configured(settings)
+
+
 def email_provider(settings: Settings) -> str:
+    if brevo_is_configured(settings):
+        return "Brevo HTTPS API"
     if not settings.smtp_host:
         return "尚未配置"
     return SMTP_PROVIDERS.get(settings.smtp_host.lower(), "自定义 SMTP")
+
+
+def configured_sender(settings: Settings) -> str | None:
+    if brevo_is_configured(settings):
+        return settings.brevo_sender_email
+    return settings.smtp_from_email
 
 
 def masked_email(value: str | None) -> str | None:
@@ -86,7 +103,7 @@ def preference_response(row: NotificationPreferenceRow, settings: Settings) -> N
         email_enabled=row.email_enabled,
         email_available=email_is_configured(settings),
         email_provider=email_provider(settings),
-        email_sender=masked_email(settings.smtp_from_email),
+        email_sender=masked_email(configured_sender(settings)),
         schedule_seconds=settings.alert_check_seconds,
         schedule_mode="Web 服务在线时后台运行",
     )
@@ -226,7 +243,7 @@ class NotificationService:
     def _base_message(self, recipient: str, subject: str, plain: str, html_body: str) -> EmailMessage:
         message = EmailMessage()
         message["Subject"] = subject
-        message["From"] = f"ChainScope <{self.settings.smtp_from_email}>"
+        message["From"] = f"ChainScope <{configured_sender(self.settings)}>"
         message["To"] = recipient
         message.set_content(plain)
         message.add_alternative(
@@ -238,13 +255,20 @@ class NotificationService:
         return message
 
     def _require_configuration(self) -> None:
-        if not email_is_configured(self.settings):
-            raise RuntimeError("SMTP 邮件服务尚未完整配置")
+        if self.settings.brevo_api_key or self.settings.brevo_sender_email:
+            if not brevo_is_configured(self.settings):
+                raise RuntimeError("Brevo API Key 和发件邮箱必须同时配置")
+            return
+        if not smtp_is_configured(self.settings):
+            raise RuntimeError("邮件服务尚未完整配置")
         if self.settings.smtp_security.lower() not in {"ssl", "starttls", "plain"}:
             raise RuntimeError("SMTP_SECURITY 必须是 ssl、starttls 或 plain")
 
     def _send_message_sync(self, message: EmailMessage) -> None:
         self._require_configuration()
+        if brevo_is_configured(self.settings):
+            self._send_via_brevo(message)
+            return
         security = self.settings.smtp_security.lower()
         smtp_class = smtplib.SMTP_SSL if security == "ssl" else smtplib.SMTP
         with smtp_class(
@@ -258,3 +282,30 @@ class NotificationService:
                 client.ehlo()
             client.login(self.settings.smtp_username, self.settings.smtp_password)
             client.send_message(message)
+
+    def _send_via_brevo(self, message: EmailMessage) -> None:
+        plain_part = message.get_body(preferencelist=("plain",))
+        html_part = message.get_body(preferencelist=("html",))
+        payload = {
+            "sender": {"name": "ChainScope", "email": self.settings.brevo_sender_email},
+            "to": [{"email": str(message["To"])}],
+            "subject": str(message["Subject"]),
+            "textContent": plain_part.get_content() if plain_part else "",
+            "htmlContent": html_part.get_content() if html_part else "",
+        }
+        response = httpx.post(
+            self.settings.brevo_api_url,
+            headers={
+                "accept": "application/json",
+                "api-key": self.settings.brevo_api_key,
+                "content-type": "application/json",
+            },
+            json=payload,
+            timeout=self.settings.smtp_timeout_seconds,
+        )
+        if response.status_code >= 400:
+            try:
+                detail = str(response.json().get("message", "未知错误"))[:300]
+            except (ValueError, AttributeError):
+                detail = response.text[:300]
+            raise RuntimeError(f"Brevo API 返回 {response.status_code}：{detail}")

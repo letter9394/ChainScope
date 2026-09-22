@@ -37,7 +37,16 @@
 
 ## 开启邮箱通知
 
-不配置任何密钥时，站内事件仍可正常工作。站外通知需要在 Render 的 Environment 中添加：
+不配置任何密钥时，站内事件仍可正常工作。Render 免费 Web Service 会封锁 SMTP 端口，因此线上免费部署推荐在 Environment 中添加：
+
+```env
+BREVO_API_KEY=
+BREVO_SENDER_EMAIL=
+```
+
+`BREVO_SENDER_EMAIL` 必须先在 Brevo 中完成验证。API Key 仅保存在 Render，不要提交到 GitHub。免费 Render 通过 HTTPS 443 端口调用 Brevo API。
+
+本地开发或允许 SMTP 出站的付费主机也可以继续使用：
 
 ```env
 SMTP_HOST=
@@ -57,4 +66,4 @@ SMTP_TIMEOUT_SECONDS=15
 | 网易 163 | `smtp.163.com` | 465 | `ssl` |
 | 网易 126 | `smtp.126.com` | 465 | `ssl` |
 
-配置完成并重新部署后，用户可在账号面板中开启邮件通知，并点击“发送测试邮件”。测试邮件永远只发送到当前登录账号的注册邮箱，且同一用户每分钟最多发送一次。
+Brevo 与 SMTP 同时配置时优先使用 Brevo。配置完成并重新部署后，用户可在账号面板中开启邮件通知，并点击“发送测试邮件”。测试邮件永远只发送到当前登录账号的注册邮箱，且同一用户每分钟最多发送一次。

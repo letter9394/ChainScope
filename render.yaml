@@ -30,6 +30,8 @@ services:
         value: "60"
       - key: PUBLIC_APP_URL
         value: https://chainscope-web3.onrender.com
+      - key: BREVO_API_URL
+        value: https://api.brevo.com/v3/smtp/email
       - key: SMTP_HOST
         value: smtp.qq.com
       - key: SMTP_PORT

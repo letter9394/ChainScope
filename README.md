@@ -126,6 +126,8 @@ DATABASE_URL=postgresql+psycopg://user:password@host:5432/chainscope
 SESSION_SECRET=一段足够长的随机字符串
 BACKGROUND_ALERTS_ENABLED=true
 ALERT_CHECK_SECONDS=60
+BREVO_API_KEY=
+BREVO_SENDER_EMAIL=
 SMTP_HOST=
 SMTP_PORT=465
 SMTP_USERNAME=
@@ -134,7 +136,7 @@ SMTP_FROM_EMAIL=
 SMTP_SECURITY=ssl
 ```
 
-不要把真实密钥提交到 GitHub。配置 AI 密钥后，新闻模块会调用兼容的 Chat Completions 接口；否则使用本地关键词规则。
+Render 免费实例会封锁 SMTP 端口，应配置 `BREVO_API_KEY` 与已验证的 `BREVO_SENDER_EMAIL`，通过 HTTPS API 发信。SMTP 配置保留给本地开发或允许 SMTP 出站的付费主机；Brevo 配置完整时会优先使用。不要把真实密钥提交到 GitHub。配置 AI 密钥后，新闻模块会调用兼容的 Chat Completions 接口；否则使用本地关键词规则。
 
 ## 运行测试
 

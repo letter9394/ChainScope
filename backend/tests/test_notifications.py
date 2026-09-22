@@ -26,12 +26,46 @@ def configured_settings() -> Settings:
     )
 
 
+def configured_brevo_settings() -> Settings:
+    return Settings(
+        brevo_api_key="xkeysib-test-key",
+        brevo_sender_email="sender@qq.com",
+    )
+
+
 def test_recognizes_mainland_email_provider() -> None:
     settings = configured_settings()
 
     assert email_is_configured(settings) is True
     assert email_provider(settings) == "QQ 邮箱"
     assert masked_email(settings.smtp_from_email) == "se***@qq.com"
+
+
+@pytest.mark.anyio
+async def test_brevo_https_api_is_preferred_and_receives_email(tmp_path: Path, monkeypatch) -> None:
+    settings = configured_brevo_settings()
+    service = NotificationService(Database(str(tmp_path / "brevo.db")), settings)
+    captured = {}
+
+    class FakeResponse:
+        status_code = 201
+        text = ""
+
+    def fake_post(url, **kwargs):
+        captured["url"] = url
+        captured.update(kwargs)
+        return FakeResponse()
+
+    monkeypatch.setattr("app.services.notifications.httpx.post", fake_post)
+    await service.send_test_email("recipient@qq.com")
+
+    assert email_is_configured(settings) is True
+    assert email_provider(settings) == "Brevo HTTPS API"
+    assert captured["url"] == "https://api.brevo.com/v3/smtp/email"
+    assert captured["headers"]["api-key"] == "xkeysib-test-key"
+    assert captured["json"]["sender"]["email"] == "sender@qq.com"
+    assert captured["json"]["to"][0]["email"] == "recipient@qq.com"
+    assert "邮箱通知测试成功" in captured["json"]["subject"]
 
 
 @pytest.mark.anyio

@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     alert_check_seconds: int = 60
     background_alerts_enabled: bool = True
     public_app_url: str = "http://localhost:3100"
+    brevo_api_url: str = "https://api.brevo.com/v3/smtp/email"
+    brevo_api_key: str | None = None
+    brevo_sender_email: str | None = None
     smtp_host: str | None = None
     smtp_port: int = 587
     smtp_username: str | None = None

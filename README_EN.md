@@ -1,6 +1,6 @@
 # ChainScope — Web3 Intelligent Market Analysis and Risk Alert Platform
 
-ChainScope is a full-stack Web3 market intelligence and risk alert platform built as a portfolio and learning project. It combines crypto and spot-gold quotes, professional candlestick charts, bilingual news, and explainable risk indicators in one interface. Version 1.1 adds email accounts, per-user isolation, PostgreSQL persistence, server-side alert checks, in-app notifications, and SMTP email delivery.
+ChainScope is a full-stack Web3 market intelligence and risk alert platform built as a portfolio and learning project. It combines crypto and spot-gold quotes, professional candlestick charts, bilingual news, and explainable risk indicators in one interface. Version 1.1 adds email accounts, per-user isolation, PostgreSQL persistence, server-side alert checks, in-app notifications, and HTTPS/SMTP email delivery.
 
 ## Highlights
 
@@ -14,7 +14,7 @@ ChainScope is a full-stack Web3 market intelligence and risk alert platform buil
 - Per-user watchlists, rules, events, and notification preferences backed by PostgreSQL (SQLite fallback for local development)
 - Threshold rules for risk score and 24-hour price change, checked every 60 seconds while the server is awake
 - Transition-based alert events with acknowledgement and history, without repeated notification spam
-- QQ Mail, NetEase Mail, and custom SMTP delivery with a self-test endpoint
+- Brevo HTTPS API for free Render deployments, plus QQ Mail, NetEase Mail, and custom SMTP fallback with a self-test endpoint
 - Cache, retry, timeout, validation, tests, Docker, and CI configuration
 
 ## Quick start on Windows
