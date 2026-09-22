@@ -30,5 +30,11 @@ services:
         value: "60"
       - key: PUBLIC_APP_URL
         value: https://chainscope-web3.onrender.com
+      - key: SMTP_HOST
+        value: smtp.qq.com
+      - key: SMTP_PORT
+        value: "465"
+      - key: SMTP_SECURITY
+        value: ssl
       - key: STATIC_DIR
         value: /app/static
