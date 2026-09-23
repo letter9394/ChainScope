@@ -49,6 +49,29 @@ class CoinGeckoClient:
             headers["x-cg-demo-api-key"] = self.settings.coingecko_demo_api_key
         return headers
 
+    def _binance_base_urls(self) -> list[str]:
+        candidates = [
+            self.settings.binance_market_url,
+            *self.settings.binance_market_fallback_urls.split(","),
+        ]
+        return list(dict.fromkeys(url.strip().rstrip("/") for url in candidates if url.strip()))
+
+    async def _get_binance(self, path: str, params: dict[str, Any]) -> tuple[Any, str]:
+        last_error: Exception | None = None
+        for base_url in self._binance_base_urls():
+            try:
+                async with httpx.AsyncClient(
+                    base_url=base_url,
+                    timeout=self.settings.request_timeout_seconds,
+                    headers={"Accept": "application/json", "User-Agent": "ChainScope/0.6"},
+                ) as client:
+                    response = await client.get(path, params=params)
+                    response.raise_for_status()
+                    return response.json(), base_url
+            except (httpx.HTTPError, ValueError) as exc:
+                last_error = exc
+        raise MarketDataError("Binance market endpoints are temporarily unavailable") from last_error
+
     async def _get(self, path: str, params: dict[str, Any]) -> Any:
         last_error: Exception | None = None
         for attempt in range(3):
@@ -124,18 +147,11 @@ class CoinGeckoClient:
 
     async def _get_binance_markets(self) -> list[MarketCoin]:
         try:
-            async with httpx.AsyncClient(
-                base_url=self.settings.binance_market_url,
-                timeout=self.settings.request_timeout_seconds,
-                headers={"Accept": "application/json", "User-Agent": "ChainScope/0.3"},
-            ) as client:
-                response = await client.get(
-                    "/api/v3/ticker/24hr",
-                    params={"symbols": '["BTCUSDT","ETHUSDT","SOLUSDT"]'},
-                )
-                response.raise_for_status()
-                payload = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
+            payload, _ = await self._get_binance(
+                "/api/v3/ticker/24hr",
+                {"symbols": '["BTCUSDT","ETHUSDT","SOLUSDT"]'},
+            )
+        except MarketDataError as exc:
             raise MarketDataError("Market data providers are temporarily unavailable") from exc
 
         if not isinstance(payload, list):
@@ -238,18 +254,11 @@ class CoinGeckoClient:
     async def _get_binance_history(self, coin_id: str, days: int) -> list[HistoryPoint]:
         symbol = COIN_BINANCE_SYMBOLS[coin_id]
         try:
-            async with httpx.AsyncClient(
-                base_url=self.settings.binance_market_url,
-                timeout=self.settings.request_timeout_seconds,
-                headers={"Accept": "application/json", "User-Agent": "ChainScope/0.4"},
-            ) as client:
-                response = await client.get(
-                    "/api/v3/klines",
-                    params={"symbol": symbol, "interval": "1d", "limit": days},
-                )
-                response.raise_for_status()
-                payload = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
+            payload, _ = await self._get_binance(
+                "/api/v3/klines",
+                {"symbol": symbol, "interval": "1d", "limit": days},
+            )
+        except MarketDataError as exc:
             raise MarketDataError("Historical market data providers are temporarily unavailable") from exc
 
         try:
@@ -283,21 +292,14 @@ class CoinGeckoClient:
 
         symbol = CANDLE_BINANCE_SYMBOLS[asset_id]
         try:
-            async with httpx.AsyncClient(
-                base_url=self.settings.binance_market_url,
-                timeout=self.settings.request_timeout_seconds,
-                headers={"Accept": "application/json", "User-Agent": "ChainScope/0.5"},
-            ) as client:
-                response = await client.get(
-                    "/api/v3/klines",
-                    params={"symbol": symbol, "interval": interval, "limit": limit},
-                )
-                response.raise_for_status()
-                payload = response.json()
+            payload, binance_base_url = await self._get_binance(
+                "/api/v3/klines",
+                {"symbol": symbol, "interval": interval, "limit": limit},
+            )
             candles = parse_binance_candles(payload)
             if len(candles) < 2:
                 raise ValueError("Incomplete candle response")
-        except (httpx.HTTPError, TypeError, ValueError) as exc:
+        except (MarketDataError, TypeError, ValueError) as exc:
             last_good = cache.get(f"{cache_key}:last-good")
             if last_good is not None:
                 return last_good
@@ -309,7 +311,7 @@ class CoinGeckoClient:
             symbol=symbol,
             display_symbol="PAXG/USDT" if is_proxy else symbol.replace("USDT", "/USDT"),
             interval=interval,
-            provider="Binance Spot",
+            provider="Binance.US Spot" if "binance.us" in binance_base_url else "Binance Spot",
             is_proxy=is_proxy,
             proxy_notice=(
                 "当前 K 线使用 PAXG/USDT 黄金代币行情作为 XAU 走势代理，不等同于现货 XAU/USD。"

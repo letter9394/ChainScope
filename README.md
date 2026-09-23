@@ -114,6 +114,7 @@ Render 免费 Web Service 闲置后会休眠，所以休眠期间后台检查暂
 ```env
 COINGECKO_DEMO_API_KEY=
 GOLD_API_URL=https://api.gold-api.com/price/XAU
+BINANCE_MARKET_FALLBACK_URLS=https://api.binance.com,https://api-gcp.binance.com,https://api1.binance.com,https://api.binance.us
 BINANCE_FUTURES_URL=https://fapi.binance.com
 FEAR_GREED_URL=https://api.alternative.me/fng/
 DERIVATIVES_CACHE_SECONDS=10

@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     coingecko_base_url: str = "https://api.coingecko.com/api/v3"
     coingecko_demo_api_key: str | None = None
     binance_market_url: str = "https://data-api.binance.vision"
+    binance_market_fallback_urls: str = (
+        "https://api.binance.com,https://api-gcp.binance.com,"
+        "https://api1.binance.com,https://api.binance.us"
+    )
     binance_futures_url: str = "https://fapi.binance.com"
     fear_greed_url: str = "https://api.alternative.me/fng/"
     gold_api_url: str = "https://api.gold-api.com/price/XAU"
