@@ -72,26 +72,30 @@ export const getNews = (coinId: string, limit = 6, signal?: AbortSignal) =>
   apiRequest<NewsResponse>(`/api/news?coin_id=${coinId}&limit=${limit}`, signal);
 
 async function translateTextInBrowser(text: string): Promise<string> {
-  const url = new URL("https://translate.googleapis.com/translate_a/single");
+  // MyMemory explicitly permits browser CORS requests. The anonymous Google
+  // endpoint does not, so it cannot be a dependable client-side fallback.
+  const url = new URL("https://api.mymemory.translated.net/get");
   url.search = new URLSearchParams({
-    client: "gtx",
-    sl: "en",
-    tl: "zh-CN",
-    dt: "t",
     q: text,
+    langpair: "en|zh-CN",
+    mt: "1",
   }).toString();
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) throw new Error(`备用翻译失败（${response.status}）`);
 
-  const payload: unknown = await response.json();
-  if (!Array.isArray(payload) || !Array.isArray(payload[0])) {
+  const payload = await response.json() as {
+    responseData?: { translatedText?: string };
+    responseDetails?: string;
+    responseStatus?: number;
+    quotaFinished?: boolean;
+  };
+  if (payload.quotaFinished || (payload.responseStatus ?? 200) !== 200) {
+    throw new Error(payload.responseDetails || "备用翻译额度暂不可用");
+  }
+  const translated = payload.responseData?.translatedText?.trim() ?? "";
+  if (!translated || translated.toUpperCase().startsWith("MYMEMORY WARNING")) {
     throw new Error("备用翻译返回了未知格式");
   }
-  const translated = payload[0]
-    .map((chunk) => (Array.isArray(chunk) && chunk[0] ? String(chunk[0]) : ""))
-    .join("")
-    .trim();
-  if (!translated) throw new Error("备用翻译结果为空");
   return translated;
 }
 
@@ -109,7 +113,7 @@ export async function translateNews(title: string, summary: string): Promise<New
       return {
         title_zh: titleZh,
         summary_zh: summaryZh,
-        provider: "Google Translate（浏览器备用通道）",
+        provider: "MyMemory（浏览器备用通道）",
       };
     } catch {
       throw new Error("翻译服务暂时繁忙，请稍后重试。");

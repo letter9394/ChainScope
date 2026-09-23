@@ -1,3 +1,4 @@
+import httpx
 import pytest
 
 import app.services.news as news_service
@@ -69,3 +70,30 @@ async def test_news_translation_returns_bilingual_content(monkeypatch: pytest.Mo
     assert result.summary_zh == "译文：Markets move higher"
     assert result.provider == "Google Translate（MyMemory 备用）"
     assert calls == ["Gold rises", "Markets move higher"]
+
+
+@pytest.mark.anyio
+async def test_translation_tries_second_google_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    hosts: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        hosts.append(request.url.host)
+        if request.url.host == "translate.googleapis.com":
+            return httpx.Response(429, json={"error": "throttled"})
+        return httpx.Response(200, json=[[['比特币市场动态', 'Bitcoin market update']]])
+
+    real_async_client = httpx.AsyncClient
+
+    def fake_async_client(*args: object, **kwargs: object) -> httpx.AsyncClient:
+        return real_async_client(transport=httpx.MockTransport(handler))
+
+    news_service.cache.clear()
+    monkeypatch.setattr(news_service.httpx, "AsyncClient", fake_async_client)
+    translated = await news_service._translate_text("Bitcoin market update", Settings())
+
+    assert translated == "比特币市场动态"
+    assert hosts == [
+        "translate.googleapis.com",
+        "translate.googleapis.com",
+        "translate.google.com",
+    ]

@@ -235,27 +235,36 @@ async def _translate_text(text: str, settings: Settings) -> str:
         timeout=settings.request_timeout_seconds,
         headers={"Accept": "application/json", "User-Agent": "ChainScope/0.1"},
     ) as client:
-        # The Google endpoint is more reliable from cloud hosts. MyMemory remains
-        # a no-key fallback so translation does not depend on a single provider.
-        for attempt in range(2):
-            try:
-                response = await client.get(
-                    settings.google_translation_api_url,
-                    params={"client": "gtx", "sl": "en", "tl": "zh-CN", "dt": "t", "q": text},
-                )
-                response.raise_for_status()
-                payload = response.json()
-                translated = html.unescape(
-                    "".join(str(chunk[0]) for chunk in payload[0] if chunk and chunk[0])
-                ).strip()
-                if not translated:
-                    raise ValueError("Empty Google translation")
+        # Try both Google hosts because anonymous traffic from shared cloud IPs
+        # can be throttled differently. MyMemory remains the no-key fallback.
+        google_urls = tuple(dict.fromkeys((
+            settings.google_translation_api_url,
+            "https://translate.google.com/translate_a/single",
+        )))
+        translated: str | None = None
+        for google_url in google_urls:
+            for attempt in range(2):
+                try:
+                    response = await client.get(
+                        google_url,
+                        params={"client": "gtx", "sl": "en", "tl": "zh-CN", "dt": "t", "q": text},
+                    )
+                    response.raise_for_status()
+                    payload = response.json()
+                    translated = html.unescape(
+                        "".join(str(chunk[0]) for chunk in payload[0] if chunk and chunk[0])
+                    ).strip()
+                    if not translated:
+                        raise ValueError("Empty Google translation")
+                    break
+                except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
+                    last_error = exc
+                    if attempt == 0:
+                        await asyncio.sleep(0.35)
+            if translated:
                 break
-            except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
-                last_error = exc
-                if attempt == 0:
-                    await asyncio.sleep(0.35)
-        else:
+
+        if not translated:
             for attempt in range(2):
                 try:
                     response = await client.get(
