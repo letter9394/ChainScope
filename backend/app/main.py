@@ -15,7 +15,7 @@ from app.config import Settings, get_settings
 from app.database import Database, UserRow
 from app.models import (
     AlertEvaluationResponse, AlertEvent, AlertRule, AlertRuleCreate, AuthCredentials,
-    AuthUser, DerivativesSnapshot, HealthResponse, HistoryPoint, MarketCoin,
+    AuthUser, CandleSeries, DerivativesSnapshot, HealthResponse, HistoryPoint, MarketCoin,
     NewsResponse, NewsTranslationRequest, NewsTranslationResponse,
     NotificationSettingsResponse, NotificationSettingsUpdate, NotificationTestResponse,
     PasswordResetConfirm, PasswordResetRequest, PasswordResetRequestResponse, RiskAssessment,
@@ -117,10 +117,25 @@ async def health(settings: Settings = Depends(get_settings)) -> HealthResponse:
     return HealthResponse(
         status="ok",
         environment=settings.chain_scope_env,
-        market_provider="Binance Spot/Futures + CoinGecko + Gold API + Alternative.me",
+        market_provider="Binance Spot/Futures/Klines + CoinGecko + Gold API + Alternative.me",
         database="postgresql" if settings.resolved_database_url.startswith("postgresql") else "sqlite",
         background_alerts=settings.background_alerts_enabled,
     )
+
+
+@app.get("/api/assets/{asset_id}/candles", response_model=CandleSeries, tags=["market"])
+async def asset_candles(
+    asset_id: str,
+    interval: str = Query(default="15m"),
+    limit: int = Query(default=300, ge=50, le=1_000),
+    client: CoinGeckoClient = Depends(get_market_client),
+) -> CandleSeries:
+    try:
+        return await client.get_candles(asset_id, interval, limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except MarketDataError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.post("/api/auth/register", response_model=AuthUser, status_code=201, tags=["auth"])

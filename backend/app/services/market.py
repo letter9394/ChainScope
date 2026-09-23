@@ -5,7 +5,7 @@ from typing import Any
 import httpx
 
 from app.config import Settings
-from app.models import HistoryPoint, MarketCoin
+from app.models import CandlePoint, CandleSeries, HistoryPoint, MarketCoin
 from app.services.cache import cache
 
 
@@ -23,6 +23,11 @@ BINANCE_SYMBOLS: dict[str, str] = {
 COIN_BINANCE_SYMBOLS: dict[str, str] = {
     coin_id: symbol for symbol, coin_id in BINANCE_SYMBOLS.items()
 }
+CANDLE_BINANCE_SYMBOLS: dict[str, str] = {
+    **COIN_BINANCE_SYMBOLS,
+    "gold": "PAXGUSDT",
+}
+CANDLE_INTERVALS = frozenset({"1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"})
 FALLBACK_COIN_METADATA: dict[str, tuple[str, str]] = {
     "bitcoin": ("Bitcoin", "https://assets.coingecko.com/coins/images/1/large/bitcoin.png"),
     "ethereum": ("Ethereum", "https://assets.coingecko.com/coins/images/279/large/ethereum.png"),
@@ -265,8 +270,85 @@ class CoinGeckoClient:
         cache.set(f"history:{coin_id}:{days}", history, self.settings.history_cache_seconds)
         return history
 
+    async def get_candles(self, asset_id: str, interval: str, limit: int) -> CandleSeries:
+        if asset_id not in CANDLE_BINANCE_SYMBOLS:
+            raise ValueError(f"Unsupported asset: {asset_id}")
+        if interval not in CANDLE_INTERVALS:
+            raise ValueError(f"Unsupported candle interval: {interval}")
+
+        cache_key = f"candles:{asset_id}:{interval}:{limit}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        symbol = CANDLE_BINANCE_SYMBOLS[asset_id]
+        try:
+            async with httpx.AsyncClient(
+                base_url=self.settings.binance_market_url,
+                timeout=self.settings.request_timeout_seconds,
+                headers={"Accept": "application/json", "User-Agent": "ChainScope/0.5"},
+            ) as client:
+                response = await client.get(
+                    "/api/v3/klines",
+                    params={"symbol": symbol, "interval": interval, "limit": limit},
+                )
+                response.raise_for_status()
+                payload = response.json()
+            candles = parse_binance_candles(payload)
+            if len(candles) < 2:
+                raise ValueError("Incomplete candle response")
+        except (httpx.HTTPError, TypeError, ValueError) as exc:
+            last_good = cache.get(f"{cache_key}:last-good")
+            if last_good is not None:
+                return last_good
+            raise MarketDataError("Binance candle data is temporarily unavailable") from exc
+
+        is_proxy = asset_id == "gold"
+        series = CandleSeries(
+            asset_id=asset_id,
+            symbol=symbol,
+            display_symbol="PAXG/USDT" if is_proxy else symbol.replace("USDT", "/USDT"),
+            interval=interval,
+            provider="Binance Spot",
+            is_proxy=is_proxy,
+            proxy_notice=(
+                "当前 K 线使用 PAXG/USDT 黄金代币行情作为 XAU 走势代理，不等同于现货 XAU/USD。"
+                if is_proxy else None
+            ),
+            updated_at=datetime.now(UTC).isoformat(),
+            candles=candles,
+        )
+        cache.set(cache_key, series, self.settings.candle_cache_seconds)
+        cache.set(f"{cache_key}:last-good", series, 3_600)
+        return series
+
 
 def datetime_from_milliseconds(value: Any) -> str | None:
     if not isinstance(value, (int, float)):
         return None
     return datetime.fromtimestamp(value / 1_000, tz=UTC).isoformat()
+
+
+def parse_binance_candles(payload: Any) -> list[CandlePoint]:
+    if not isinstance(payload, list):
+        raise ValueError("Unexpected candle response")
+    candles: list[CandlePoint] = []
+    for row in payload:
+        if not isinstance(row, list) or len(row) < 6:
+            continue
+        open_price = float(row[1])
+        high_price = float(row[2])
+        low_price = float(row[3])
+        close_price = float(row[4])
+        volume = float(row[5])
+        if min(open_price, high_price, low_price, close_price) <= 0 or volume < 0:
+            continue
+        candles.append(CandlePoint(
+            time=int(row[0]) // 1_000,
+            open=open_price,
+            high=high_price,
+            low=low_price,
+            close=close_price,
+            volume=volume,
+        ))
+    return candles

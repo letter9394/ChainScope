@@ -16,9 +16,9 @@ The browser is responsible for interaction and visualization. FastAPI owns exter
 
 The browser opens one Binance combined WebSocket for BTCUSDT, ETHUSDT, and SOLUSDT ticker events. The stream normally updates the cards about once per second. A separate 15-second REST refresh keeps the XAU quote current and repairs the screen if a stream message is missed. If the WebSocket is blocked or disconnected, the UI explicitly changes to fallback mode and reconnects in the background. Alert evaluation remains on a 60-second schedule so live rendering does not multiply expensive risk calculations.
 
-## Why TradingView is embedded in the browser
+## Why candlesticks are rendered in-app through a server proxy
 
-The backend normalizes the current quotes used by ChainScope, while TradingView specializes in interactive charting and interval changes. Keeping the chart as a client-side embed avoids storing a large intraday candle history and demonstrates how to integrate a focused third-party component. The app still owns the asset selector and the eight requested interval controls, which map to TradingView symbols and intervals.
+The browser renders candles with the open-source TradingView Lightweight Charts library, but it never requests Binance directly. FastAPI validates the asset and interval, fetches Binance Spot klines, normalizes them, and applies a short cache plus a last-known-good fallback. This same-origin path reduces client-side network restrictions, centralizes upstream error handling, and is easy to test. BTC, ETH, and SOL use their real USDT markets. Until a dedicated XAU/USD history provider is added, the gold chart uses PAXG/USDT only as an explicitly labeled trend proxy; the gold quote card still uses the separate XAU spot source.
 
 ## Why news translation is on demand
 
@@ -41,6 +41,7 @@ Each rule stores whether it is currently on the triggered side of the threshold.
 - Why is the score educational rather than investment advice?
 - Why should an alert trigger on a state transition instead of on every polling cycle?
 - Why combine WebSocket push data with a slower REST snapshot?
-- Why is an embedded chart useful, and what dependency risk does it introduce?
+- Why proxy candle data through the backend instead of calling Binance from every browser?
+- Why must PAXG/USDT be labeled as a proxy rather than exact XAU/USD history?
 - Why should translation be lazy and cached?
 - How would Redis replace the in-memory cache in a multi-server deployment?

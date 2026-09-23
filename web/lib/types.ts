@@ -20,6 +20,29 @@ export interface HistoryPoint {
   volume: number | null;
 }
 
+export type CandleInterval = "1m" | "5m" | "15m" | "30m" | "1h" | "4h" | "1d" | "1w";
+
+export interface CandlePoint {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export interface CandleSeries {
+  asset_id: string;
+  symbol: string;
+  display_symbol: string;
+  interval: CandleInterval;
+  provider: string;
+  is_proxy: boolean;
+  proxy_notice: string | null;
+  updated_at: string;
+  candles: CandlePoint[];
+}
+
 export interface RiskMetric {
   key: string;
   label: string;

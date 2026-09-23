@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.main import app, get_market_client
-from app.models import DerivativesSnapshot, HistoryPoint, MarketCoin, NewsResponse
+from app.models import CandlePoint, CandleSeries, DerivativesSnapshot, HistoryPoint, MarketCoin, NewsResponse
 
 
 class FakeMarketClient:
@@ -24,6 +24,24 @@ class FakeMarketClient:
             for index in range(max(8, days))
         ]
 
+    async def get_candles(self, asset_id: str, interval: str, limit: int) -> CandleSeries:
+        if asset_id not in {"bitcoin", "ethereum", "solana", "gold"}:
+            raise ValueError(f"Unsupported asset: {asset_id}")
+        return CandleSeries(
+            asset_id=asset_id,
+            symbol="PAXGUSDT" if asset_id == "gold" else "BTCUSDT",
+            display_symbol="PAXG/USDT" if asset_id == "gold" else "BTC/USDT",
+            interval=interval,
+            provider="Binance Spot",
+            is_proxy=asset_id == "gold",
+            proxy_notice="proxy" if asset_id == "gold" else None,
+            updated_at="2026-09-23T00:00:00+00:00",
+            candles=[
+                CandlePoint(time=1_700_000_000, open=100, high=105, low=98, close=103, volume=42),
+                CandlePoint(time=1_700_000_060, open=103, high=106, low=101, close=104, volume=51),
+            ],
+        )
+
 
 app.dependency_overrides[get_market_client] = lambda: FakeMarketClient()
 client = TestClient(app)
@@ -41,6 +59,21 @@ def test_markets_endpoint() -> None:
 
     assert response.status_code == 200
     assert response.json()[0]["symbol"] == "BTC"
+
+
+def test_candles_endpoint_returns_same_origin_chart_data() -> None:
+    response = client.get("/api/assets/gold/candles?interval=15m&limit=300")
+
+    assert response.status_code == 200
+    assert response.json()["display_symbol"] == "PAXG/USDT"
+    assert response.json()["is_proxy"] is True
+    assert len(response.json()["candles"]) == 2
+
+
+def test_candles_endpoint_rejects_unknown_asset() -> None:
+    response = client.get("/api/assets/dogecoin/candles?interval=15m&limit=300")
+
+    assert response.status_code == 404
 
 
 def test_history_endpoint_validates_days() -> None:

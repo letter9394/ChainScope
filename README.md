@@ -10,7 +10,8 @@ ChainScope 是一个面向学习与作品集展示的 Web3 智能市场分析与
 
 - BTC、ETH、SOL 使用 Binance WebSocket 约每秒推送，XAU 与后端快照每 15 秒校准
 - WebSocket 不可用时自动退回 15 秒轮询，不让行情区域失去数据
-- 点击任一资产即可切换 TradingView K 线，支持 1/5/15/30 分钟、1/4 小时、日线和周线
+- 点击任一资产即可切换站内 K 线，支持 1/5/15/30 分钟、1/4 小时、日线和周线
+- BTC、ETH、SOL K 线由 FastAPI 代理 Binance Spot；黄金暂以 PAXG/USDT 作为走势代理并在界面明确标注
 - 根据波动率、最大回撤、成交量异常和短期动量计算 0–100 风险分
 - 接入 Binance Futures 资金费率、未平仓合约、多空比，并每 10 秒更新
 - 通过 WebSocket 实时累计页面打开后的强平事件，区分多单与空单强平
@@ -30,11 +31,11 @@ ChainScope 是一个面向学习与作品集展示的 Web3 智能市场分析与
 
 ```text
 浏览器 / Next.js 仪表盘（3100）
- |       |                |
- |   Binance WebSocket    | 约1秒加密行情
- |   TradingView          | K线
+ |       |                         |
+ |   Binance WebSocket             | 约1秒加密行情
+ |   Lightweight Charts            | 站内K线渲染
  v
-FastAPI 服务（8000） ── 后台预警调度器（60 秒）
+FastAPI 服务（8000） ── Binance Spot K线代理 ── 后台预警调度器（60 秒）
  /        |          |       |       \
 CoinGecko Binance Futures Gold API CoinDesk PostgreSQL
 行情历史   衍生品/情绪    黄金现价  RSS新闻  用户/自选/预警/通知
@@ -44,7 +45,7 @@ CoinGecko Binance Futures Gold API CoinDesk PostgreSQL
 
 | 层级 | 技术 |
 | --- | --- |
-| 前端 | Next.js 15、React 19、TypeScript、TradingView Advanced Chart |
+| 前端 | Next.js 15、React 19、TypeScript、TradingView Lightweight Charts |
 | 后端 | Python 3、FastAPI、Pydantic、HTTPX |
 | 数据 | Binance Spot/Futures REST 与 WebSocket、CoinGecko、Gold API、Alternative.me、CoinDesk RSS、PostgreSQL / SQLite |
 | 测试 | Pytest、FastAPI TestClient、TypeScript typecheck |
@@ -116,6 +117,7 @@ GOLD_API_URL=https://api.gold-api.com/price/XAU
 BINANCE_FUTURES_URL=https://fapi.binance.com
 FEAR_GREED_URL=https://api.alternative.me/fng/
 DERIVATIVES_CACHE_SECONDS=10
+CANDLE_CACHE_SECONDS=8
 TRANSLATION_API_URL=https://api.mymemory.translated.net/get
 GOOGLE_TRANSLATION_API_URL=https://translate.googleapis.com/translate_a/single
 TRANSLATION_CACHE_SECONDS=86400
@@ -153,6 +155,7 @@ pnpm build
 | --- | --- | --- |
 | GET | `/api/health` | 服务与数据源状态 |
 | GET | `/api/markets` | 市场概览 |
+| GET | `/api/assets/{asset_id}/candles` | 服务器转发的 Binance K 线；支持八种周期 |
 | GET | `/api/coins/{coin_id}/history` | 历史价格和成交量 |
 | GET | `/api/coins/{coin_id}/risk` | 可解释风险报告 |
 | GET | `/api/coins/{coin_id}/derivatives` | 实时资金费率、持仓量、多空比和市场情绪 |
@@ -185,7 +188,8 @@ ChainScope/
 - 免费公共数据可能有延迟、限流或短暂不可用
 - 新闻情绪分析主要用于作品集演示，不能替代专业研究
 - 当前行情覆盖 BTC、ETH、SOL、XAU；XAU 暂不套用加密货币风险评分，也不参与阈值预警
-- TradingView 图表依赖其外部服务和用户当前网络；不同报价商的价格可能存在轻微差异
+- 黄金卡片仍显示 Gold API 的 XAU/USD 现价，但 K 线暂用 Binance PAXG/USDT 作为走势代理；两者不是同一报价，后续可接入带 Key 的精确 XAU/USD 历史数据源
+- K 线由后端代理 Binance 公共接口并在浏览器内渲染，减少终端网络直接访问外部图表服务的依赖；免费上游仍可能限流或短暂不可用
 - 新闻翻译由机器生成并按需调用第三方服务，应以英文原文为准
 - 免费 Web Service 休眠期间后台预警不会运行；唤醒后自动恢复
 - 免费 PostgreSQL 有 30 天期限，正式环境需要付费实例或迁移到长期数据库

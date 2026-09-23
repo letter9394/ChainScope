@@ -4,6 +4,8 @@ import type {
   AlertRule,
   AlertRuleInput,
   AuthUser,
+  CandleInterval,
+  CandleSeries,
   HistoryPoint,
   MarketCoin,
   NewsResponse,
@@ -64,6 +66,16 @@ export const getMarkets = (signal?: AbortSignal) =>
 
 export const getHistory = (coinId: string, days = 30, signal?: AbortSignal) =>
   apiRequest<HistoryPoint[]>(`/api/coins/${coinId}/history?days=${days}`, signal);
+
+export const getCandles = (
+  assetId: string,
+  interval: CandleInterval,
+  limit = 300,
+  signal?: AbortSignal,
+) => apiRequest<CandleSeries>(
+  `/api/assets/${encodeURIComponent(assetId)}/candles?interval=${encodeURIComponent(interval)}&limit=${limit}`,
+  signal,
+);
 
 export const getRisk = (coinId: string, days = 30, signal?: AbortSignal) =>
   apiRequest<RiskAssessment>(`/api/coins/${coinId}/risk?days=${days}`, signal);

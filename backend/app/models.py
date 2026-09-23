@@ -23,6 +23,27 @@ class HistoryPoint(BaseModel):
     volume: float | None = None
 
 
+class CandlePoint(BaseModel):
+    time: int
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+
+
+class CandleSeries(BaseModel):
+    asset_id: str
+    symbol: str
+    display_symbol: str
+    interval: str
+    provider: str
+    is_proxy: bool = False
+    proxy_notice: str | None = None
+    updated_at: str
+    candles: list[CandlePoint]
+
+
 class RiskMetric(BaseModel):
     key: str
     label: str

@@ -8,7 +8,7 @@ import { DerivativesPanel } from "@/components/DerivativesPanel";
 import { MarketCard } from "@/components/MarketCard";
 import { NewsPanel } from "@/components/NewsPanel";
 import { RiskPanel } from "@/components/RiskPanel";
-import { TradingViewChart } from "@/components/TradingViewChart";
+import { CandlestickChart } from "@/components/CandlestickChart";
 import { useLiveCryptoPrices } from "@/hooks/useLiveCryptoPrices";
 import { useLiquidationStream } from "@/hooks/useLiquidationStream";
 import {
@@ -392,7 +392,7 @@ export default function Home() {
           </p>
         </div>
         <div className="hero-meta">
-          <span>行情来源</span><strong>Binance · Gold API</strong>
+          <span>行情来源</span><strong>Binance · Gold API · 服务器转发</strong>
           <span>K线周期</span><strong>1 分钟 — 周线</strong>
           <span>行情更新</span><strong>{liveMarketStatus === "live" ? "约 1 秒实时推送" : "每 15 秒"}</strong>
         </div>
@@ -448,7 +448,7 @@ export default function Home() {
           <div className="panel-header">
             <div>
               <span className="panel-eyebrow">MULTI-TIMEFRAME CANDLESTICK</span>
-              <h2>{selectedCoin?.name ?? "市场"} K线图</h2>
+              <h2>{selectedId === "gold" ? "黄金代理 K线图" : `${selectedCoin?.name ?? "市场"} K线图`}</h2>
             </div>
             {selectedCoin ? (
               <div className="current-quote">
@@ -465,7 +465,7 @@ export default function Home() {
               </div>
             ) : null}
           </div>
-          <TradingViewChart assetId={selectedId} symbol={selectedCoin?.symbol ?? "Asset"} />
+          <CandlestickChart assetId={selectedId} symbol={selectedCoin?.symbol ?? "Asset"} />
         </div>
         <RiskPanel risk={risk} loading={loadingDetail} unavailable={selectedId === "gold"} />
       </section>
