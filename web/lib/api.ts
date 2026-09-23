@@ -101,11 +101,16 @@ async function translateTextInBrowser(text: string): Promise<string> {
 
 export async function translateNews(title: string, summary: string): Promise<NewsTranslation> {
   try {
-    return await apiRequest<NewsTranslation>("/api/news/translate", undefined, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, summary }),
-    });
+    return await Promise.race([
+      apiRequest<NewsTranslation>("/api/news/translate", undefined, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, summary }),
+      }),
+      new Promise<never>((_, reject) => {
+        window.setTimeout(() => reject(new Error("服务端翻译等待超时")), 4_000);
+      }),
+    ]);
   } catch {
     try {
       const titleZh = await translateTextInBrowser(title);

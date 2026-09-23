@@ -1,4 +1,3 @@
-import asyncio
 import hashlib
 import html
 import json
@@ -243,47 +242,38 @@ async def _translate_text(text: str, settings: Settings) -> str:
         )))
         translated: str | None = None
         for google_url in google_urls:
-            for attempt in range(2):
-                try:
-                    response = await client.get(
-                        google_url,
-                        params={"client": "gtx", "sl": "en", "tl": "zh-CN", "dt": "t", "q": text},
-                    )
-                    response.raise_for_status()
-                    payload = response.json()
-                    translated = html.unescape(
-                        "".join(str(chunk[0]) for chunk in payload[0] if chunk and chunk[0])
-                    ).strip()
-                    if not translated:
-                        raise ValueError("Empty Google translation")
-                    break
-                except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
-                    last_error = exc
-                    if attempt == 0:
-                        await asyncio.sleep(0.35)
+            try:
+                response = await client.get(
+                    google_url,
+                    params={"client": "gtx", "sl": "en", "tl": "zh-CN", "dt": "t", "q": text},
+                )
+                response.raise_for_status()
+                payload = response.json()
+                translated = html.unescape(
+                    "".join(str(chunk[0]) for chunk in payload[0] if chunk and chunk[0])
+                ).strip()
+                if not translated:
+                    raise ValueError("Empty Google translation")
+            except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
+                last_error = exc
             if translated:
                 break
 
         if not translated:
-            for attempt in range(2):
-                try:
-                    response = await client.get(
-                        settings.translation_api_url,
-                        params={"q": text, "langpair": "en|zh-CN", "mt": "1"},
-                    )
-                    response.raise_for_status()
-                    payload = response.json()
-                    if int(payload.get("responseStatus", 200)) != 200:
-                        raise ValueError(str(payload.get("responseDetails") or "Translation rejected"))
-                    translated = html.unescape(str(payload["responseData"]["translatedText"])).strip()
-                    if not translated or translated.upper().startswith("MYMEMORY WARNING"):
-                        raise ValueError("Empty or throttled translation")
-                    break
-                except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
-                    last_error = exc
-                    if attempt == 0:
-                        await asyncio.sleep(0.35)
-            else:
+            try:
+                response = await client.get(
+                    settings.translation_api_url,
+                    params={"q": text, "langpair": "en|zh-CN", "mt": "1"},
+                )
+                response.raise_for_status()
+                payload = response.json()
+                if int(payload.get("responseStatus", 200)) != 200:
+                    raise ValueError(str(payload.get("responseDetails") or "Translation rejected"))
+                translated = html.unescape(str(payload["responseData"]["translatedText"])).strip()
+                if not translated or translated.upper().startswith("MYMEMORY WARNING"):
+                    raise ValueError("Empty or throttled translation")
+            except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
+                last_error = exc
                 raise RuntimeError("Translation service is temporarily unavailable") from last_error
 
     cache.set(cache_key, translated, settings.translation_cache_seconds)

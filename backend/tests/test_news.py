@@ -94,6 +94,5 @@ async def test_translation_tries_second_google_host(monkeypatch: pytest.MonkeyPa
     assert translated == "比特币市场动态"
     assert hosts == [
         "translate.googleapis.com",
-        "translate.googleapis.com",
         "translate.google.com",
     ]
