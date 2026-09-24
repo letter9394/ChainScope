@@ -411,9 +411,24 @@ class CoinGeckoClient:
                     "apiKey": api_key,
                 },
             )
+            if not isinstance(payload, dict):
+                raise MarketDataError("Massive returned a non-object response")
+            if not isinstance(payload.get("results"), list):
+                provider_status = str(payload.get("status") or "UNKNOWN")[:60]
+                provider_message = str(
+                    payload.get("message") or payload.get("error") or "results field is missing"
+                )
+                if api_key:
+                    provider_message = provider_message.replace(api_key, "[redacted]")
+                raise MarketDataError(
+                    f"Massive payload {provider_status}: {provider_message[:160]}"
+                )
             candles = parse_massive_candles(payload)
             if len(candles) < 2:
-                raise ValueError("Incomplete XAU/USD candle response")
+                results_count = payload.get("resultsCount", len(candles))
+                raise MarketDataError(
+                    f"Massive returned only {results_count} XAU/USD candle(s) for this range"
+                )
         except MarketDataError:
             raise
         except (TypeError, ValueError) as exc:
