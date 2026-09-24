@@ -414,7 +414,9 @@ class CoinGeckoClient:
             candles = parse_massive_candles(payload)
             if len(candles) < 2:
                 raise ValueError("Incomplete XAU/USD candle response")
-        except (MarketDataError, TypeError, ValueError) as exc:
+        except MarketDataError:
+            raise
+        except (TypeError, ValueError) as exc:
             raise MarketDataError("Massive XAU/USD candles are temporarily unavailable") from exc
 
         return CandleSeries(
