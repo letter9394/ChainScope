@@ -23,10 +23,13 @@ class Settings(BaseSettings):
     binance_futures_url: str = "https://fapi.binance.com"
     fear_greed_url: str = "https://api.alternative.me/fng/"
     gold_api_url: str = "https://api.gold-api.com/price/XAU"
+    massive_api_url: str = "https://api.massive.com"
+    massive_api_key: str | None = None
     market_cache_seconds: int = 60
     gold_cache_seconds: int = 15
     history_cache_seconds: int = 300
     candle_cache_seconds: int = 2
+    gold_candle_cache_seconds: int = 20
     derivatives_cache_seconds: int = 10
     database_url: str | None = None
     database_path: str = ".local/chainscope.db"

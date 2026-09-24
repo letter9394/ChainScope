@@ -1,5 +1,5 @@
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -28,6 +28,16 @@ CANDLE_BINANCE_SYMBOLS: dict[str, str] = {
     "gold": "PAXGUSDT",
 }
 CANDLE_INTERVALS = frozenset({"1m", "5m", "15m", "30m", "1h", "4h", "1d", "1w"})
+MASSIVE_INTERVALS: dict[str, tuple[int, str, int]] = {
+    "1m": (1, "minute", 3),
+    "5m": (5, "minute", 7),
+    "15m": (15, "minute", 14),
+    "30m": (30, "minute", 21),
+    "1h": (1, "hour", 45),
+    "4h": (4, "hour", 180),
+    "1d": (1, "day", 730),
+    "1w": (1, "week", 730),
+}
 FALLBACK_COIN_METADATA: dict[str, tuple[str, str]] = {
     "bitcoin": ("Bitcoin", "https://assets.coingecko.com/coins/images/1/large/bitcoin.png"),
     "ethereum": ("Ethereum", "https://assets.coingecko.com/coins/images/279/large/ethereum.png"),
@@ -71,6 +81,19 @@ class CoinGeckoClient:
             except (httpx.HTTPError, ValueError) as exc:
                 last_error = exc
         raise MarketDataError("Binance market endpoints are temporarily unavailable") from last_error
+
+    async def _get_massive(self, path: str, params: dict[str, Any]) -> Any:
+        try:
+            async with httpx.AsyncClient(
+                base_url=self.settings.massive_api_url.rstrip("/"),
+                timeout=self.settings.request_timeout_seconds,
+                headers={"Accept": "application/json", "User-Agent": "ChainScope/0.8"},
+            ) as client:
+                response = await client.get(path, params=params)
+                response.raise_for_status()
+                return response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            raise MarketDataError("Massive market endpoint is temporarily unavailable") from exc
 
     async def _get(self, path: str, params: dict[str, Any]) -> Any:
         last_error: Exception | None = None
@@ -290,6 +313,17 @@ class CoinGeckoClient:
         if cached is not None:
             return cached
 
+        if asset_id == "gold" and self.settings.massive_api_key:
+            try:
+                series = await self._get_massive_gold_candles(interval, limit)
+                cache.set(cache_key, series, self.settings.gold_candle_cache_seconds)
+                cache.set(f"{cache_key}:massive-last-good", series, 3_600)
+                return series
+            except MarketDataError:
+                last_exact = cache.get(f"{cache_key}:massive-last-good")
+                if last_exact is not None:
+                    return last_exact
+
         symbol = CANDLE_BINANCE_SYMBOLS[asset_id]
         try:
             payload, binance_base_url = await self._get_binance(
@@ -320,9 +354,57 @@ class CoinGeckoClient:
             updated_at=datetime.now(UTC).isoformat(),
             candles=candles,
         )
-        cache.set(cache_key, series, self.settings.candle_cache_seconds)
+        cache_seconds = (
+            self.settings.gold_candle_cache_seconds
+            if asset_id == "gold"
+            else self.settings.candle_cache_seconds
+        )
+        cache.set(cache_key, series, cache_seconds)
         cache.set(f"{cache_key}:last-good", series, 3_600)
         return series
+
+    async def _get_massive_gold_candles(self, interval: str, limit: int) -> CandleSeries:
+        api_key = self.settings.massive_api_key
+        if not api_key:
+            raise MarketDataError("Massive API key is not configured")
+
+        multiplier, timespan, lookback_days = MASSIVE_INTERVALS[interval]
+        end_date = datetime.now(UTC).date()
+        start_date = end_date - timedelta(days=lookback_days)
+        path = (
+            f"/v2/aggs/ticker/C:XAUUSD/range/{multiplier}/{timespan}/"
+            f"{start_date.isoformat()}/{end_date.isoformat()}"
+        )
+        try:
+            payload = await self._get_massive(
+                path,
+                {
+                    "adjusted": "true",
+                    "sort": "desc",
+                    "limit": limit,
+                    "apiKey": api_key,
+                },
+            )
+            candles = parse_massive_candles(payload)
+            if len(candles) < 2:
+                raise ValueError("Incomplete XAU/USD candle response")
+        except (MarketDataError, TypeError, ValueError) as exc:
+            raise MarketDataError("Massive XAU/USD candles are temporarily unavailable") from exc
+
+        return CandleSeries(
+            asset_id="gold",
+            symbol="C:XAUUSD",
+            display_symbol="XAU/USD",
+            interval=interval,
+            provider="Massive Forex",
+            is_proxy=False,
+            proxy_notice=(
+                "现货 XAU/USD 聚合报价；Massive 免费方案可能提供延迟或日终数据，"
+                "不等同于交易所实时成交价。"
+            ),
+            updated_at=datetime.now(UTC).isoformat(),
+            candles=candles,
+        )
 
 
 def datetime_from_milliseconds(value: Any) -> str | None:
@@ -353,4 +435,34 @@ def parse_binance_candles(payload: Any) -> list[CandlePoint]:
             close=close_price,
             volume=volume,
         ))
+    return candles
+
+
+def parse_massive_candles(payload: Any) -> list[CandlePoint]:
+    if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
+        raise ValueError("Unexpected Massive candle response")
+    candles: list[CandlePoint] = []
+    for row in payload["results"]:
+        if not isinstance(row, dict):
+            continue
+        try:
+            open_price = float(row["o"])
+            high_price = float(row["h"])
+            low_price = float(row["l"])
+            close_price = float(row["c"])
+            volume = float(row.get("v") or 0)
+            timestamp = int(row["t"]) // 1_000
+        except (KeyError, TypeError, ValueError):
+            continue
+        if min(open_price, high_price, low_price, close_price) <= 0 or volume < 0:
+            continue
+        candles.append(CandlePoint(
+            time=timestamp,
+            open=open_price,
+            high=high_price,
+            low=low_price,
+            close=close_price,
+            volume=volume,
+        ))
+    candles.sort(key=lambda candle: candle.time)
     return candles

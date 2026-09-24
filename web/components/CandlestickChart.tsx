@@ -544,7 +544,7 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
 
       <div className="native-chart-meta">
         <div>
-          <strong>{series?.display_symbol ?? (assetId === "gold" ? "PAXG/USDT" : `${symbol}/USDT`)}</strong>
+          <strong>{series?.display_symbol ?? (assetId === "gold" ? "XAU/USD" : `${symbol}/USDT`)}</strong>
           <span>{series?.provider ?? "Binance Spot"} · 服务器转发</span>
         </div>
         <span>更新于 {updatedLabel}</span>
@@ -570,7 +570,7 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
 
       {assetId === "gold" ? (
         <div className="proxy-notice" role="note">
-          <strong>PAXG 黄金代理行情</strong>
+          <strong>{series?.is_proxy === false ? "XAU/USD 现货黄金行情" : "PAXG 黄金代理行情"}</strong>
           <span>{series?.proxy_notice ?? "当前 K 线使用 PAXG/USDT 作为 XAU 走势代理，不等同于现货 XAU/USD。"}</span>
         </div>
       ) : null}

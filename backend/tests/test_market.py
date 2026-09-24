@@ -5,6 +5,7 @@ from app.models import HistoryPoint, MarketCoin
 from app.services.cache import cache
 from app.services.market import (
     CoinGeckoClient, MarketDataError, datetime_from_milliseconds, parse_binance_candles,
+    parse_massive_candles,
 )
 
 
@@ -56,6 +57,69 @@ def test_binance_candles_are_normalized_for_the_chart() -> None:
     assert result[0].low == 98
     assert result[0].close == 103
     assert result[0].volume == 42
+
+
+def test_massive_xau_candles_are_normalized_and_sorted() -> None:
+    result = parse_massive_candles({"results": [
+        {"t": 1_700_000_060_000, "o": 2_001, "h": 2_006, "l": 1_999, "c": 2_004},
+        {"t": 1_700_000_000_000, "o": 2_000, "h": 2_005, "l": 1_998, "c": 2_003, "v": 12},
+    ]})
+
+    assert [candle.time for candle in result] == [1_700_000_000, 1_700_000_060]
+    assert result[0].close == 2_003
+    assert result[0].volume == 12
+    assert result[1].volume == 0
+
+
+@pytest.mark.anyio
+async def test_gold_candles_use_exact_massive_xau_when_key_is_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache.clear()
+    client = CoinGeckoClient(Settings(massive_api_key="test-key"))
+
+    async def massive(path: str, params: dict[str, object]) -> object:
+        assert "/v2/aggs/ticker/C:XAUUSD/range/15/minute/" in path
+        assert params["limit"] == 2
+        assert params["apiKey"] == "test-key"
+        return {"results": [
+            {"t": 1_700_000_000_000, "o": 2_000, "h": 2_005, "l": 1_998, "c": 2_003},
+            {"t": 1_700_000_900_000, "o": 2_003, "h": 2_008, "l": 2_001, "c": 2_006},
+        ]}
+
+    monkeypatch.setattr(client, "_get_massive", massive)
+    result = await client.get_candles("gold", "15m", 2)
+
+    assert result.symbol == "C:XAUUSD"
+    assert result.display_symbol == "XAU/USD"
+    assert result.provider == "Massive Forex"
+    assert result.is_proxy is False
+
+
+@pytest.mark.anyio
+async def test_gold_candles_fall_back_to_labeled_paxg_when_massive_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache.clear()
+    client = CoinGeckoClient(Settings(massive_api_key="test-key"))
+
+    async def unavailable(interval: str, limit: int) -> object:
+        raise MarketDataError("Massive unavailable")
+
+    async def binance(path: str, params: dict[str, object]) -> tuple[object, str]:
+        assert params["symbol"] == "PAXGUSDT"
+        return ([
+            [1_700_000_000_000, "2000", "2005", "1998", "2003", "12"],
+            [1_700_000_060_000, "2003", "2008", "2001", "2006", "15"],
+        ], "https://api.binance.com")
+
+    monkeypatch.setattr(client, "_get_massive_gold_candles", unavailable)
+    monkeypatch.setattr(client, "_get_binance", binance)
+    result = await client.get_candles("gold", "1m", 2)
+
+    assert result.display_symbol == "PAXG/USDT"
+    assert result.is_proxy is True
+    assert result.proxy_notice is not None
 
 
 def test_binance_endpoint_fallbacks_are_ordered_and_deduplicated() -> None:

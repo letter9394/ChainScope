@@ -7,7 +7,7 @@ ChainScope is a full-stack Web3 market intelligence and risk alert platform buil
 - Near-real-time BTC, ETH, and SOL quotes via Binance WebSocket, plus 15-second XAU and REST snapshot refreshes
 - Automatic 15-second polling fallback when the live stream is unavailable
 - Click-to-switch in-app candlestick charts with 1/5/15/30-minute, 1/4-hour, daily, and weekly intervals
-- FastAPI proxies real Binance Spot candles for BTC, ETH, and SOL; gold is explicitly labeled as a temporary PAXG/USDT trend proxy
+- FastAPI proxies real Binance Spot candles for BTC, ETH, and SOL; with a Massive API key, gold uses real `C:XAUUSD` aggregate bars and automatically falls back to a clearly labeled PAXG/USDT proxy
 - Moving averages, volume, and a separate MACD pane are enabled by default, with configurable MA/BOLL/RSI/MACD parameters, crosshair OHLC inspection, fullscreen, pan, and zoom controls
 - Candles update incrementally from the server every two seconds; transient failures keep the last valid chart visible and retry automatically
 - Transparent 0–100 score based on volatility, maximum drawdown, volume anomaly, and momentum
@@ -37,7 +37,7 @@ Open http://localhost:3100 for the dashboard and http://localhost:8000/docs for 
 
 The root `render.yaml` and multi-stage `Dockerfile` deploy the exported Next.js frontend and FastAPI backend as one same-origin Render service. On Render's free tier, the service sleeps when idle and its SQLite data is ephemeral. Use PostgreSQL or a paid persistent disk for production persistence.
 
-The crypto cards use Binance's one-second ticker stream while CoinGecko provides the normalized fallback snapshot. The XAU quote comes from Gold API and uses USD per troy ounce. Candlesticks are rendered in-app with TradingView Lightweight Charts, using server-proxied Binance Spot data. BTC, ETH, and SOL use their real USDT markets; the gold chart temporarily uses PAXG/USDT and is clearly labeled as a proxy rather than exact XAU/USD history. XAU is intentionally excluded from the crypto-specific risk score and threshold alerts, and machine-translated news should always be checked against the linked English original.
+The crypto cards use Binance's one-second ticker stream while CoinGecko provides the normalized fallback snapshot. The XAU quote comes from Gold API and uses USD per troy ounce. Candlesticks are rendered in-app with TradingView Lightweight Charts. BTC, ETH, and SOL use server-proxied Binance Spot data. When `MASSIVE_API_KEY` is configured, gold uses Massive's `C:XAUUSD` aggregate bars with a 20-second cache; missing credentials, rate limits, or upstream failures fall back to the clearly labeled PAXG/USDT proxy. Massive's free Currencies Basic plan may provide delayed or end-of-day data rather than real-time bars. XAU is intentionally excluded from the crypto-specific risk score and threshold alerts, and machine-translated news should always be checked against the linked English original.
 
 ## Quality checks
 

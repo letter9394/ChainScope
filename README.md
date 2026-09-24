@@ -11,7 +11,7 @@ ChainScope 是一个面向学习与作品集展示的 Web3 智能市场分析与
 - BTC、ETH、SOL 使用 Binance WebSocket 约每秒推送，XAU 与后端快照每 15 秒校准
 - WebSocket 不可用时自动退回 15 秒轮询，不让行情区域失去数据
 - 点击任一资产即可切换站内 K 线，支持 1/5/15/30 分钟、1/4 小时、日线和周线
-- BTC、ETH、SOL K 线由 FastAPI 代理 Binance Spot；黄金暂以 PAXG/USDT 作为走势代理并在界面明确标注
+- BTC、ETH、SOL K 线由 FastAPI 代理 Binance Spot；配置 Massive Key 后黄金使用真正的 XAU/USD 聚合 K 线，失败时自动降级到明确标注的 PAXG/USDT 代理
 - 默认展示均线、成交量和独立 MACD 副图，可切换 BOLL、RSI，自定义各项指标参数，并支持十字光标历史 OHLC、全屏、拖动和缩放
 - K 线每 2 秒从服务端增量更新最后两根蜡烛；短时断网保留最后有效画面并自动重试
 - 根据波动率、最大回撤、成交量异常和短期动量计算 0–100 风险分
@@ -116,11 +116,14 @@ Render 免费 Web Service 闲置后会休眠，所以休眠期间后台检查暂
 ```env
 COINGECKO_DEMO_API_KEY=
 GOLD_API_URL=https://api.gold-api.com/price/XAU
+MASSIVE_API_URL=https://api.massive.com
+MASSIVE_API_KEY=
 BINANCE_MARKET_FALLBACK_URLS=https://api.binance.com,https://api-gcp.binance.com,https://api1.binance.com,https://api.binance.us
 BINANCE_FUTURES_URL=https://fapi.binance.com
 FEAR_GREED_URL=https://api.alternative.me/fng/
 DERIVATIVES_CACHE_SECONDS=10
 CANDLE_CACHE_SECONDS=2
+GOLD_CANDLE_CACHE_SECONDS=20
 TRANSLATION_API_URL=https://api.mymemory.translated.net/get
 GOOGLE_TRANSLATION_API_URL=https://translate.googleapis.com/translate_a/single
 TRANSLATION_CACHE_SECONDS=86400
@@ -141,7 +144,7 @@ SMTP_FROM_EMAIL=
 SMTP_SECURITY=ssl
 ```
 
-Render 免费实例会封锁 SMTP 端口，应配置 `BREVO_API_KEY` 与已验证的 `BREVO_SENDER_EMAIL`，通过 HTTPS API 发信。SMTP 配置保留给本地开发或允许 SMTP 出站的付费主机；Brevo 配置完整时会优先使用。不要把真实密钥提交到 GitHub。配置 AI 密钥后，新闻模块会调用兼容的 Chat Completions 接口；否则使用本地关键词规则。
+Render 免费实例会封锁 SMTP 端口，应配置 `BREVO_API_KEY` 与已验证的 `BREVO_SENDER_EMAIL`，通过 HTTPS API 发信。SMTP 配置保留给本地开发或允许 SMTP 出站的付费主机；Brevo 配置完整时会优先使用。配置 `MASSIVE_API_KEY` 后，黄金图表使用 `C:XAUUSD`；免费 Currencies Basic 数据可能延迟，20 秒缓存用于控制在免费限流范围内。不要把任何真实密钥提交到 GitHub。配置 AI 密钥后，新闻模块会调用兼容的 Chat Completions 接口；否则使用本地关键词规则。
 
 ## 运行测试
 
@@ -158,7 +161,7 @@ pnpm build
 | --- | --- | --- |
 | GET | `/api/health` | 服务与数据源状态 |
 | GET | `/api/markets` | 市场概览 |
-| GET | `/api/assets/{asset_id}/candles` | 服务器转发的 Binance K 线；支持八种周期 |
+| GET | `/api/assets/{asset_id}/candles` | 服务器转发的 Binance 加密 K 线与 Massive XAU/USD K 线；支持八种周期 |
 | GET | `/api/coins/{coin_id}/history` | 历史价格和成交量 |
 | GET | `/api/coins/{coin_id}/risk` | 可解释风险报告 |
 | GET | `/api/coins/{coin_id}/derivatives` | 实时资金费率、持仓量、多空比和市场情绪 |
@@ -191,7 +194,8 @@ ChainScope/
 - 免费公共数据可能有延迟、限流或短暂不可用
 - 新闻情绪分析主要用于作品集演示，不能替代专业研究
 - 当前行情覆盖 BTC、ETH、SOL、XAU；XAU 暂不套用加密货币风险评分，也不参与阈值预警
-- 黄金卡片仍显示 Gold API 的 XAU/USD 现价，但 K 线暂用 Binance PAXG/USDT 作为走势代理；两者不是同一报价，后续可接入带 Key 的精确 XAU/USD 历史数据源
+- 黄金卡片显示 Gold API 的 XAU/USD 现价；配置 `MASSIVE_API_KEY` 后 K 线使用 Massive `C:XAUUSD`，未配置、限流或服务异常时自动退回明确标注的 Binance PAXG/USDT 走势代理
+- Massive 免费 Currencies Basic 虽支持分钟聚合，但不是实时权限；需要实时 XAU/USD 时应升级数据方案
 - K 线由后端代理 Binance 公共接口并在浏览器内渲染，减少终端网络直接访问外部图表服务的依赖；免费上游仍可能限流或短暂不可用
 - 新闻翻译由机器生成并按需调用第三方服务，应以英文原文为准
 - 免费 Web Service 休眠期间后台预警不会运行；唤醒后自动恢复
