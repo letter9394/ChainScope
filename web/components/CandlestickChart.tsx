@@ -238,7 +238,8 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
     renderedLastTimeRef.current = 0;
     void loadInitial(controller.signal).then(() => {
       if (!controller.signal.aborted) {
-        timer = window.setInterval(() => void loadIncremental(), 2_000);
+        const refreshMilliseconds = assetId === "gold" ? 20_000 : 2_000;
+        timer = window.setInterval(() => void loadIncremental(), refreshMilliseconds);
       }
     });
     return () => {
@@ -527,7 +528,9 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
           <button className={showParameters ? "active" : ""} type="button" onClick={() => setShowParameters((value) => !value)}>参数</button>
           <button type="button" onClick={() => void toggleFullscreen()}>{isFullscreen ? "退出全屏" : "全屏"}</button>
           <span className={`incremental-status ${incrementalStatus}`}>
-            {incrementalStatus === "live" ? "2秒增量" : incrementalStatus === "retrying" ? "正在重连" : "正在连接"}
+            {incrementalStatus === "live"
+              ? assetId === "gold" ? "20秒同步" : "2秒增量"
+              : incrementalStatus === "retrying" ? "正在重连" : "正在连接"}
           </span>
         </div>
       </div>

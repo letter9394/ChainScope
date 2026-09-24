@@ -88,7 +88,7 @@ async def test_gold_candles_use_exact_massive_xau_when_key_is_configured(
         ).isoformat()
         assert f"/{expected_start}/" in path
         assert path.endswith(f"/{expected_end}")
-        assert params["limit"] == 30
+        assert params["limit"] == 300
         assert params["apiKey"] == "test-key"
         return {"results": [
             {"t": 1_700_000_000_000, "o": 2_000, "h": 2_005, "l": 1_998, "c": 2_003},

@@ -409,7 +409,7 @@ class CoinGeckoClient:
         )
         # Massive's limit applies to the underlying base aggregates. A 15-minute
         # request therefore needs 15 base minute rows for each displayed bar.
-        provider_limit = min(50_000, limit * multiplier)
+        provider_limit = min(50_000, max(300, limit * multiplier))
         try:
             payload = await self._get_massive(
                 path,
