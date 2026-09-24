@@ -127,7 +127,7 @@ async def health(settings: Settings = Depends(get_settings)) -> HealthResponse:
 async def asset_candles(
     asset_id: str,
     interval: str = Query(default="15m"),
-    limit: int = Query(default=300, ge=50, le=1_000),
+    limit: int = Query(default=300, ge=2, le=1_000),
     client: CoinGeckoClient = Depends(get_market_client),
 ) -> CandleSeries:
     try:

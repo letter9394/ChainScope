@@ -70,6 +70,13 @@ def test_candles_endpoint_returns_same_origin_chart_data() -> None:
     assert len(response.json()["candles"]) == 2
 
 
+def test_candles_endpoint_accepts_two_point_incremental_request() -> None:
+    response = client.get("/api/assets/bitcoin/candles?interval=1m&limit=2")
+
+    assert response.status_code == 200
+    assert len(response.json()["candles"]) == 2
+
+
 def test_candles_endpoint_rejects_unknown_asset() -> None:
     response = client.get("/api/assets/dogecoin/candles?interval=15m&limit=300")
 
