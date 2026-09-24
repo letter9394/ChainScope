@@ -38,6 +38,7 @@ MASSIVE_INTERVALS: dict[str, tuple[int, str, int]] = {
     "1d": (1, "day", 730),
     "1w": (1, "week", 730),
 }
+MASSIVE_BASIC_HISTORY_DAYS = 730
 FALLBACK_COIN_METADATA: dict[str, tuple[str, str]] = {
     "bitcoin": ("Bitcoin", "https://assets.coingecko.com/coins/images/1/large/bitcoin.png"),
     "ethereum": ("Ethereum", "https://assets.coingecko.com/coins/images/279/large/ethereum.png"),
@@ -396,7 +397,12 @@ class CoinGeckoClient:
         # set MASSIVE_DATA_DELAY_DAYS=0.
         delay_days = max(0, self.settings.massive_data_delay_days)
         end_date = datetime.now(UTC).date() - timedelta(days=delay_days)
-        start_date = end_date - timedelta(days=lookback_days)
+        # The free Currencies Basic plan includes two years of history. Query
+        # the full eligible window and let sort=desc + limit select the newest
+        # bars. This also avoids a false fallback when a thin market has no
+        # aggregate updates inside the interval-specific short lookback.
+        history_days = max(lookback_days, MASSIVE_BASIC_HISTORY_DAYS)
+        start_date = end_date - timedelta(days=history_days)
         path = (
             f"/v2/aggs/ticker/C:XAUUSD/range/{multiplier}/{timespan}/"
             f"{start_date.isoformat()}/{end_date.isoformat()}"

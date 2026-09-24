@@ -83,6 +83,10 @@ async def test_gold_candles_use_exact_massive_xau_when_key_is_configured(
     async def massive(path: str, params: dict[str, object]) -> object:
         assert "/v2/aggs/ticker/C:XAUUSD/range/15/minute/" in path
         expected_end = (datetime.now(UTC).date() - timedelta(days=2)).isoformat()
+        expected_start = (
+            datetime.now(UTC).date() - timedelta(days=2 + 730)
+        ).isoformat()
+        assert f"/{expected_start}/" in path
         assert path.endswith(f"/{expected_end}")
         assert params["limit"] == 2
         assert params["apiKey"] == "test-key"
