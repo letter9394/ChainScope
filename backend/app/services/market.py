@@ -407,13 +407,16 @@ class CoinGeckoClient:
             f"/v2/aggs/ticker/C:XAUUSD/range/{multiplier}/{timespan}/"
             f"{start_date.isoformat()}/{end_date.isoformat()}"
         )
+        # Massive's limit applies to the underlying base aggregates. A 15-minute
+        # request therefore needs 15 base minute rows for each displayed bar.
+        provider_limit = min(50_000, limit * multiplier)
         try:
             payload = await self._get_massive(
                 path,
                 {
                     "adjusted": "true",
                     "sort": "desc",
-                    "limit": limit,
+                    "limit": provider_limit,
                     "apiKey": api_key,
                 },
             )
@@ -435,6 +438,7 @@ class CoinGeckoClient:
                 raise MarketDataError(
                     f"Massive returned only {results_count} XAU/USD candle(s) for this range"
                 )
+            candles = candles[-limit:]
         except MarketDataError:
             raise
         except (TypeError, ValueError) as exc:

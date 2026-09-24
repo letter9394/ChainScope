@@ -211,6 +211,7 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
       const result = await getCandles(assetId, interval, 2);
       setSeries((current) => {
         if (!current || current.asset_id !== assetId || current.interval !== interval) return result;
+        if (current.symbol !== result.symbol || current.provider !== result.provider) return result;
         const byTime = new Map(current.candles.map((candle) => [candle.time, candle]));
         result.candles.forEach((candle) => byTime.set(candle.time, candle));
         const candles = [...byTime.values()].sort((left, right) => left.time - right.time).slice(-300);
@@ -227,6 +228,7 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
 
   useEffect(() => {
     const controller = new AbortController();
+    let timer: number | undefined;
     setLoading(true);
     setError(null);
     setSeries(null);
@@ -234,11 +236,14 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
     setIncrementalStatus("connecting");
     renderedKeyRef.current = "";
     renderedLastTimeRef.current = 0;
-    void loadInitial(controller.signal);
-    const timer = window.setInterval(() => void loadIncremental(), 2_000);
+    void loadInitial(controller.signal).then(() => {
+      if (!controller.signal.aborted) {
+        timer = window.setInterval(() => void loadIncremental(), 2_000);
+      }
+    });
     return () => {
       controller.abort();
-      window.clearInterval(timer);
+      if (timer !== undefined) window.clearInterval(timer);
     };
   }, [loadIncremental, loadInitial]);
 
@@ -408,7 +413,7 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
     );
     const rsi = rsiData(series.candles, parameters.rsiPeriod);
     const parameterKey = JSON.stringify(parameters);
-    const renderKey = `${assetId}:${interval}:${subIndicator}:${parameterKey}`;
+    const renderKey = `${assetId}:${interval}:${series.symbol}:${series.provider}:${subIndicator}:${parameterKey}`;
     const previousLastTime = renderedLastTimeRef.current;
     const fullRender = renderedKeyRef.current !== renderKey || previousLastTime === 0;
 
@@ -449,7 +454,7 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
     renderedLastTimeRef.current = series.candles.at(-1)?.time ?? 0;
     chart.timeScale().applyOptions({ timeVisible: !["1d", "1w"].includes(interval) });
 
-    const fittedKey = `${assetId}:${interval}:${subIndicator}`;
+    const fittedKey = `${assetId}:${interval}:${series.symbol}:${series.provider}:${subIndicator}`;
     if (fittedKeyRef.current !== fittedKey) {
       const visibleBars = containerRef.current && containerRef.current.clientWidth < 600 ? 72 : 140;
       chart.timeScale().setVisibleLogicalRange({
