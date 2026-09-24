@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     market_cache_seconds: int = 60
     gold_cache_seconds: int = 15
     history_cache_seconds: int = 300
-    candle_cache_seconds: int = 8
+    candle_cache_seconds: int = 2
     derivatives_cache_seconds: int = 10
     database_url: str | None = None
     database_path: str = ".local/chainscope.db"

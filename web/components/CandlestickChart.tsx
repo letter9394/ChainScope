@@ -13,6 +13,7 @@ import {
   type IChartApi,
   type ISeriesApi,
   type LineData,
+  type MouseEventParams,
   type UTCTimestamp,
 } from "lightweight-charts";
 
@@ -27,8 +28,29 @@ const intervals: Array<{ value: CandleInterval; label: string }> = [
 ];
 
 type SubIndicator = "MACD" | "RSI" | null;
+type IncrementalStatus = "connecting" | "live" | "retrying";
 type LineApi = ISeriesApi<"Line">;
 type HistogramApi = ISeriesApi<"Histogram">;
+
+interface IndicatorParameters {
+  ma: [number, number, number];
+  bollPeriod: number;
+  bollMultiplier: number;
+  rsiPeriod: number;
+  macdFast: number;
+  macdSlow: number;
+  macdSignal: number;
+}
+
+const defaultIndicatorParameters: IndicatorParameters = {
+  ma: [5, 10, 20],
+  bollPeriod: 20,
+  bollMultiplier: 2,
+  rsiPeriod: 14,
+  macdFast: 12,
+  macdSlow: 26,
+  macdSignal: 9,
+};
 
 interface IndicatorSeriesRefs {
   ma5: LineApi | null;
@@ -91,12 +113,12 @@ function bollingerBands(candles: CandlePoint[], period = 20, multiplier = 2) {
   return { upper, middle, lower };
 }
 
-function macdData(candles: CandlePoint[]) {
+function macdData(candles: CandlePoint[], fastPeriod: number, slowPeriod: number, signalPeriod: number) {
   const closes = candles.map((item) => item.close);
-  const fast = exponentialMovingAverage(closes, 12);
-  const slow = exponentialMovingAverage(closes, 26);
+  const fast = exponentialMovingAverage(closes, fastPeriod);
+  const slow = exponentialMovingAverage(closes, slowPeriod);
   const values = closes.map((_, index) => fast[index] - slow[index]);
-  const signalValues = exponentialMovingAverage(values, 9);
+  const signalValues = exponentialMovingAverage(values, signalPeriod);
   const macd: LineData<UTCTimestamp>[] = [];
   const signal: LineData<UTCTimestamp>[] = [];
   const histogram: HistogramData<UTCTimestamp>[] = [];
@@ -149,24 +171,57 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
   const [showBoll, setShowBoll] = useState(false);
   const [showVolume, setShowVolume] = useState(true);
   const [subIndicator, setSubIndicator] = useState<SubIndicator>("MACD");
+  const [parameters, setParameters] = useState<IndicatorParameters>(defaultIndicatorParameters);
+  const [showParameters, setShowParameters] = useState(false);
+  const [inspectedCandle, setInspectedCandle] = useState<CandlePoint | null>(null);
+  const [incrementalStatus, setIncrementalStatus] = useState<IncrementalStatus>("connecting");
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volumeSeriesRef = useRef<HistogramApi | null>(null);
   const indicatorRefs = useRef<IndicatorSeriesRefs>(emptyIndicatorRefs());
   const fittedKeyRef = useRef("");
+  const renderedKeyRef = useRef("");
+  const renderedLastTimeRef = useRef(0);
+  const candleLookupRef = useRef<Map<number, CandlePoint>>(new Map());
+  const incrementalInFlightRef = useRef(false);
 
-  const load = useCallback(async (signal?: AbortSignal) => {
+  const loadInitial = useCallback(async (signal?: AbortSignal) => {
     try {
       const result = await getCandles(assetId, interval, 300, signal);
       setSeries(result);
       setError(null);
+      setIncrementalStatus("live");
     } catch (reason) {
       if (!(reason instanceof DOMException && reason.name === "AbortError")) {
         setError(reason instanceof Error ? reason.message : "K线数据加载失败");
+        setIncrementalStatus("retrying");
       }
     } finally {
       setLoading(false);
+    }
+  }, [assetId, interval]);
+
+  const loadIncremental = useCallback(async () => {
+    if (incrementalInFlightRef.current) return;
+    incrementalInFlightRef.current = true;
+    try {
+      const result = await getCandles(assetId, interval, 2);
+      setSeries((current) => {
+        if (!current || current.asset_id !== assetId || current.interval !== interval) return result;
+        const byTime = new Map(current.candles.map((candle) => [candle.time, candle]));
+        result.candles.forEach((candle) => byTime.set(candle.time, candle));
+        const candles = [...byTime.values()].sort((left, right) => left.time - right.time).slice(-300);
+        return { ...current, ...result, candles };
+      });
+      setIncrementalStatus("live");
+    } catch {
+      // Keep the last good chart visible while the incremental updater reconnects.
+      setIncrementalStatus("retrying");
+    } finally {
+      incrementalInFlightRef.current = false;
     }
   }, [assetId, interval]);
 
@@ -175,13 +230,27 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
     setLoading(true);
     setError(null);
     setSeries(null);
-    void load(controller.signal);
-    const timer = window.setInterval(() => void load(), 10_000);
+    setInspectedCandle(null);
+    setIncrementalStatus("connecting");
+    renderedKeyRef.current = "";
+    renderedLastTimeRef.current = 0;
+    void loadInitial(controller.signal);
+    const timer = window.setInterval(() => void loadIncremental(), 2_000);
     return () => {
       controller.abort();
       window.clearInterval(timer);
     };
-  }, [load]);
+  }, [loadIncremental, loadInitial]);
+
+  useEffect(() => {
+    candleLookupRef.current = new Map((series?.candles ?? []).map((candle) => [candle.time, candle]));
+  }, [series]);
+
+  useEffect(() => {
+    const onFullscreenChange = () => setIsFullscreen(document.fullscreenElement === shellRef.current);
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
+  }, []);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -264,12 +333,22 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
     volumeSeriesRef.current = volume;
     indicatorRefs.current = indicators;
 
+    const handleCrosshairMove = (param: MouseEventParams) => {
+      if (typeof param.time !== "number") {
+        setInspectedCandle(null);
+        return;
+      }
+      setInspectedCandle(candleLookupRef.current.get(param.time) ?? null);
+    };
+    chart.subscribeCrosshairMove(handleCrosshairMove);
+
     const observer = new ResizeObserver(([entry]) => {
       chart.applyOptions({ width: Math.floor(entry.contentRect.width), height: Math.floor(entry.contentRect.height) });
     });
     observer.observe(container);
     return () => {
       observer.disconnect();
+      chart.unsubscribeCrosshairMove(handleCrosshairMove);
       chart.remove();
       chartRef.current = null;
       candleSeriesRef.current = null;
@@ -296,29 +375,78 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
     if (!series) {
       candles.setData([]);
       volume.setData([]);
+      indicators.ma5?.setData([]);
+      indicators.ma10?.setData([]);
+      indicators.ma20?.setData([]);
+      indicators.bollUpper?.setData([]);
+      indicators.bollMiddle?.setData([]);
+      indicators.bollLower?.setData([]);
+      indicators.macd?.setData([]);
+      indicators.macdSignal?.setData([]);
+      indicators.macdHistogram?.setData([]);
+      indicators.rsi?.setData([]);
       return;
     }
 
-    candles.setData(series.candles.map((item) => ({
+    const candleData = series.candles.map((item) => ({
       time: item.time as UTCTimestamp,
       open: item.open, high: item.high, low: item.low, close: item.close,
-    })));
-    volume.setData(series.candles.map((item) => ({
+    }));
+    const volumeData = series.candles.map((item) => ({
       time: item.time as UTCTimestamp, value: item.volume,
       color: item.close >= item.open ? "rgba(50, 227, 167, .42)" : "rgba(255, 95, 120, .42)",
-    })));
-    indicators.ma5?.setData(simpleMovingAverage(series.candles, 5));
-    indicators.ma10?.setData(simpleMovingAverage(series.candles, 10));
-    indicators.ma20?.setData(simpleMovingAverage(series.candles, 20));
-    const boll = bollingerBands(series.candles);
-    indicators.bollUpper?.setData(boll.upper);
-    indicators.bollMiddle?.setData(boll.middle);
-    indicators.bollLower?.setData(boll.lower);
-    const macd = macdData(series.candles);
-    indicators.macd?.setData(macd.macd);
-    indicators.macdSignal?.setData(macd.signal);
-    indicators.macdHistogram?.setData(macd.histogram);
-    indicators.rsi?.setData(rsiData(series.candles));
+    }));
+    const maFast = simpleMovingAverage(series.candles, parameters.ma[0]);
+    const maMedium = simpleMovingAverage(series.candles, parameters.ma[1]);
+    const maSlow = simpleMovingAverage(series.candles, parameters.ma[2]);
+    const boll = bollingerBands(series.candles, parameters.bollPeriod, parameters.bollMultiplier);
+    const macd = macdData(
+      series.candles,
+      parameters.macdFast,
+      parameters.macdSlow,
+      parameters.macdSignal,
+    );
+    const rsi = rsiData(series.candles, parameters.rsiPeriod);
+    const parameterKey = JSON.stringify(parameters);
+    const renderKey = `${assetId}:${interval}:${subIndicator}:${parameterKey}`;
+    const previousLastTime = renderedLastTimeRef.current;
+    const fullRender = renderedKeyRef.current !== renderKey || previousLastTime === 0;
+
+    if (fullRender) {
+      candles.setData(candleData);
+      volume.setData(volumeData);
+      indicators.ma5?.setData(maFast);
+      indicators.ma10?.setData(maMedium);
+      indicators.ma20?.setData(maSlow);
+      indicators.bollUpper?.setData(boll.upper);
+      indicators.bollMiddle?.setData(boll.middle);
+      indicators.bollLower?.setData(boll.lower);
+      indicators.macd?.setData(macd.macd);
+      indicators.macdSignal?.setData(macd.signal);
+      indicators.macdHistogram?.setData(macd.histogram);
+      indicators.rsi?.setData(rsi);
+      renderedKeyRef.current = renderKey;
+    } else {
+      candleData.slice(-2).forEach((point) => candles.update(point, Number(point.time) < previousLastTime));
+      volumeData.slice(-2).forEach((point) => volume.update(point, Number(point.time) < previousLastTime));
+      const updateLine = (api: LineApi | null, data: LineData<UTCTimestamp>[]) => {
+        data.slice(-2).forEach((point) => api?.update(point, Number(point.time) < previousLastTime));
+      };
+      const updateHistogram = (api: HistogramApi | null, data: HistogramData<UTCTimestamp>[]) => {
+        data.slice(-2).forEach((point) => api?.update(point, Number(point.time) < previousLastTime));
+      };
+      updateLine(indicators.ma5, maFast);
+      updateLine(indicators.ma10, maMedium);
+      updateLine(indicators.ma20, maSlow);
+      updateLine(indicators.bollUpper, boll.upper);
+      updateLine(indicators.bollMiddle, boll.middle);
+      updateLine(indicators.bollLower, boll.lower);
+      updateLine(indicators.macd, macd.macd);
+      updateLine(indicators.macdSignal, macd.signal);
+      updateHistogram(indicators.macdHistogram, macd.histogram);
+      updateLine(indicators.rsi, rsi);
+    }
+    renderedLastTimeRef.current = series.candles.at(-1)?.time ?? 0;
     chart.timeScale().applyOptions({ timeVisible: !["1d", "1w"].includes(interval) });
 
     const fittedKey = `${assetId}:${interval}:${subIndicator}`;
@@ -329,7 +457,7 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
       });
       fittedKeyRef.current = fittedKey;
     }
-  }, [assetId, interval, series, showBoll, showMA, showVolume, subIndicator]);
+  }, [assetId, interval, parameters, series, showBoll, showMA, showVolume, subIndicator]);
 
   const updatedLabel = useMemo(() => {
     if (!series) return "等待数据";
@@ -339,13 +467,43 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
   }, [series]);
 
   const latest = series?.candles.at(-1);
-  const priceDigits = latest && latest.close < 10 ? 4 : 2;
+  const activeCandle = inspectedCandle ?? latest;
+  const priceDigits = activeCandle && activeCandle.close < 10 ? 4 : 2;
+  const activeCandleTime = activeCandle
+    ? new Intl.DateTimeFormat("zh-CN", {
+      month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+    }).format(new Date(activeCandle.time * 1_000))
+    : null;
   const toggleSubIndicator = (value: Exclude<SubIndicator, null>) => {
     setSubIndicator((current) => current === value ? null : value);
   };
+  const setNumericParameter = (
+    key: Exclude<keyof IndicatorParameters, "ma">,
+    value: number,
+    minimum: number,
+    maximum: number,
+  ) => {
+    const safeValue = Math.min(maximum, Math.max(minimum, Number.isFinite(value) ? value : minimum));
+    setParameters((current) => ({ ...current, [key]: safeValue }));
+  };
+  const setMAPeriod = (index: number, value: number) => {
+    const safeValue = Math.min(200, Math.max(2, Number.isFinite(value) ? value : 2));
+    setParameters((current) => {
+      const ma = [...current.ma] as [number, number, number];
+      ma[index] = safeValue;
+      return { ...current, ma };
+    });
+  };
+  const toggleFullscreen = async () => {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+      return;
+    }
+    await shellRef.current?.requestFullscreen();
+  };
 
   return (
-    <div className="candlestick-shell">
+    <div className="candlestick-shell" ref={shellRef}>
       <div className="chart-toolbar">
         <div className="timeframe-row" aria-label={`${symbol} K线周期`}>
           {intervals.map((item) => (
@@ -361,8 +519,28 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
           <button className={subIndicator === "MACD" ? "active" : ""} type="button" onClick={() => toggleSubIndicator("MACD")}>MACD</button>
           <button className={subIndicator === "RSI" ? "active" : ""} type="button" onClick={() => toggleSubIndicator("RSI")}>RSI</button>
           <button className={showVolume ? "active" : ""} type="button" onClick={() => setShowVolume((value) => !value)}>成交量</button>
+          <button className={showParameters ? "active" : ""} type="button" onClick={() => setShowParameters((value) => !value)}>参数</button>
+          <button type="button" onClick={() => void toggleFullscreen()}>{isFullscreen ? "退出全屏" : "全屏"}</button>
+          <span className={`incremental-status ${incrementalStatus}`}>
+            {incrementalStatus === "live" ? "2秒增量" : incrementalStatus === "retrying" ? "正在重连" : "正在连接"}
+          </span>
         </div>
       </div>
+
+      {showParameters ? (
+        <div className="indicator-parameters" aria-label="指标参数设置">
+          <label>MA 1<input type="number" min="2" max="200" value={parameters.ma[0]} onChange={(event) => setMAPeriod(0, Number(event.target.value))} /></label>
+          <label>MA 2<input type="number" min="2" max="200" value={parameters.ma[1]} onChange={(event) => setMAPeriod(1, Number(event.target.value))} /></label>
+          <label>MA 3<input type="number" min="2" max="200" value={parameters.ma[2]} onChange={(event) => setMAPeriod(2, Number(event.target.value))} /></label>
+          <label>BOLL周期<input type="number" min="5" max="100" value={parameters.bollPeriod} onChange={(event) => setNumericParameter("bollPeriod", Number(event.target.value), 5, 100)} /></label>
+          <label>BOLL倍数<input type="number" min="1" max="5" step="0.1" value={parameters.bollMultiplier} onChange={(event) => setNumericParameter("bollMultiplier", Number(event.target.value), 1, 5)} /></label>
+          <label>RSI周期<input type="number" min="2" max="100" value={parameters.rsiPeriod} onChange={(event) => setNumericParameter("rsiPeriod", Number(event.target.value), 2, 100)} /></label>
+          <label>MACD快线<input type="number" min="2" max="100" value={parameters.macdFast} onChange={(event) => setNumericParameter("macdFast", Number(event.target.value), 2, 100)} /></label>
+          <label>MACD慢线<input type="number" min="3" max="200" value={parameters.macdSlow} onChange={(event) => setNumericParameter("macdSlow", Number(event.target.value), 3, 200)} /></label>
+          <label>MACD信号<input type="number" min="2" max="100" value={parameters.macdSignal} onChange={(event) => setNumericParameter("macdSignal", Number(event.target.value), 2, 100)} /></label>
+          <button type="button" onClick={() => setParameters(defaultIndicatorParameters)}>恢复默认</button>
+        </div>
+      ) : null}
 
       <div className="native-chart-meta">
         <div>
@@ -372,20 +550,22 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
         <span>更新于 {updatedLabel}</span>
       </div>
 
-      {latest ? (
+      {activeCandle ? (
         <div className="ohlc-strip" aria-label="当前K线价格">
-          <span>开 <strong>{latest.open.toFixed(priceDigits)}</strong></span>
-          <span>高 <strong className="price-up">{latest.high.toFixed(priceDigits)}</strong></span>
-          <span>低 <strong className="price-down">{latest.low.toFixed(priceDigits)}</strong></span>
-          <span>收 <strong>{latest.close.toFixed(priceDigits)}</strong></span>
+          <span className="ohlc-time">{inspectedCandle ? "十字光标" : "最新"} · {activeCandleTime}</span>
+          <span>开 <strong>{activeCandle.open.toFixed(priceDigits)}</strong></span>
+          <span>高 <strong className="price-up">{activeCandle.high.toFixed(priceDigits)}</strong></span>
+          <span>低 <strong className="price-down">{activeCandle.low.toFixed(priceDigits)}</strong></span>
+          <span>收 <strong>{activeCandle.close.toFixed(priceDigits)}</strong></span>
+          <span>量 <strong>{new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 2 }).format(activeCandle.volume)}</strong></span>
         </div>
       ) : null}
 
       <div className="indicator-legend" aria-label="指标图例">
-        {showMA ? <><span className="ma5">MA5</span><span className="ma10">MA10</span><span className="ma20">MA20</span></> : null}
-        {showBoll ? <span className="boll">BOLL(20,2)</span> : null}
+        {showMA ? <><span className="ma5">MA{parameters.ma[0]}</span><span className="ma10">MA{parameters.ma[1]}</span><span className="ma20">MA{parameters.ma[2]}</span></> : null}
+        {showBoll ? <span className="boll">BOLL({parameters.bollPeriod},{parameters.bollMultiplier})</span> : null}
         {subIndicator === "MACD" ? <><span className="dif">DIF</span><span className="dea">DEA</span></> : null}
-        {subIndicator === "RSI" ? <span className="rsi">RSI(14)</span> : null}
+        {subIndicator === "RSI" ? <span className="rsi">RSI({parameters.rsiPeriod})</span> : null}
       </div>
 
       {assetId === "gold" ? (
@@ -401,7 +581,7 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
         {error ? (
           <div className="chart-state chart-state-error">
             <span>{error}</span>
-            <button type="button" onClick={() => { setLoading(true); void load(); }}>重试</button>
+            <button type="button" onClick={() => { setLoading(true); void loadInitial(); }}>重试</button>
           </div>
         ) : null}
       </div>

@@ -12,7 +12,8 @@ ChainScope 是一个面向学习与作品集展示的 Web3 智能市场分析与
 - WebSocket 不可用时自动退回 15 秒轮询，不让行情区域失去数据
 - 点击任一资产即可切换站内 K 线，支持 1/5/15/30 分钟、1/4 小时、日线和周线
 - BTC、ETH、SOL K 线由 FastAPI 代理 Binance Spot；黄金暂以 PAXG/USDT 作为走势代理并在界面明确标注
-- 默认展示 MA5/MA10/MA20、成交量和独立 MACD 副图，可切换 BOLL、RSI 并支持拖动、滚轮或双指缩放
+- 默认展示均线、成交量和独立 MACD 副图，可切换 BOLL、RSI，自定义各项指标参数，并支持十字光标历史 OHLC、全屏、拖动和缩放
+- K 线每 2 秒从服务端增量更新最后两根蜡烛；短时断网保留最后有效画面并自动重试
 - 根据波动率、最大回撤、成交量异常和短期动量计算 0–100 风险分
 - 接入 Binance Futures 资金费率、未平仓合约、多空比，并每 10 秒更新
 - 通过 WebSocket 实时累计页面打开后的强平事件，区分多单与空单强平
@@ -119,7 +120,7 @@ BINANCE_MARKET_FALLBACK_URLS=https://api.binance.com,https://api-gcp.binance.com
 BINANCE_FUTURES_URL=https://fapi.binance.com
 FEAR_GREED_URL=https://api.alternative.me/fng/
 DERIVATIVES_CACHE_SECONDS=10
-CANDLE_CACHE_SECONDS=8
+CANDLE_CACHE_SECONDS=2
 TRANSLATION_API_URL=https://api.mymemory.translated.net/get
 GOOGLE_TRANSLATION_API_URL=https://translate.googleapis.com/translate_a/single
 TRANSLATION_CACHE_SECONDS=86400
