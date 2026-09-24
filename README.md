@@ -118,6 +118,7 @@ COINGECKO_DEMO_API_KEY=
 GOLD_API_URL=https://api.gold-api.com/price/XAU
 MASSIVE_API_URL=https://api.massive.com
 MASSIVE_API_KEY=
+MASSIVE_DATA_DELAY_DAYS=2
 BINANCE_MARKET_FALLBACK_URLS=https://api.binance.com,https://api-gcp.binance.com,https://api1.binance.com,https://api.binance.us
 BINANCE_FUTURES_URL=https://fapi.binance.com
 FEAR_GREED_URL=https://api.alternative.me/fng/
@@ -144,7 +145,7 @@ SMTP_FROM_EMAIL=
 SMTP_SECURITY=ssl
 ```
 
-Render 免费实例会封锁 SMTP 端口，应配置 `BREVO_API_KEY` 与已验证的 `BREVO_SENDER_EMAIL`，通过 HTTPS API 发信。SMTP 配置保留给本地开发或允许 SMTP 出站的付费主机；Brevo 配置完整时会优先使用。配置 `MASSIVE_API_KEY` 后，黄金图表使用 `C:XAUUSD`；免费 Currencies Basic 数据可能延迟，20 秒缓存用于控制在免费限流范围内。不要把任何真实密钥提交到 GitHub。配置 AI 密钥后，新闻模块会调用兼容的 Chat Completions 接口；否则使用本地关键词规则。
+Render 免费实例会封锁 SMTP 端口，应配置 `BREVO_API_KEY` 与已验证的 `BREVO_SENDER_EMAIL`，通过 HTTPS API 发信。SMTP 配置保留给本地开发或允许 SMTP 出站的付费主机；Brevo 配置完整时会优先使用。配置 `MASSIVE_API_KEY` 后，黄金图表使用 `C:XAUUSD`；免费 Currencies Basic 只能读取已完成的历史分钟线，因此默认 `MASSIVE_DATA_DELAY_DAYS=2`，并使用 20 秒缓存控制请求额度。付费实时方案可把延迟改为 `0`。不要把任何真实密钥提交到 GitHub。配置 AI 密钥后，新闻模块会调用兼容的 Chat Completions 接口；否则使用本地关键词规则。
 
 ## 运行测试
 
@@ -195,7 +196,7 @@ ChainScope/
 - 新闻情绪分析主要用于作品集演示，不能替代专业研究
 - 当前行情覆盖 BTC、ETH、SOL、XAU；XAU 暂不套用加密货币风险评分，也不参与阈值预警
 - 黄金卡片显示 Gold API 的 XAU/USD 现价；配置 `MASSIVE_API_KEY` 后 K 线使用 Massive `C:XAUUSD`，未配置、限流或服务异常时自动退回明确标注的 Binance PAXG/USDT 走势代理
-- Massive 免费 Currencies Basic 虽支持分钟聚合，但不是实时权限；需要实时 XAU/USD 时应升级数据方案
+- Massive 免费 Currencies Basic 虽支持分钟聚合，但不是实时权限；当前默认展示延迟两天的真实 XAU/USD 历史 K 线，需要实时行情时应升级数据方案并把 `MASSIVE_DATA_DELAY_DAYS` 改为 `0`
 - K 线由后端代理 Binance 公共接口并在浏览器内渲染，减少终端网络直接访问外部图表服务的依赖；免费上游仍可能限流或短暂不可用
 - 新闻翻译由机器生成并按需调用第三方服务，应以英文原文为准
 - 免费 Web Service 休眠期间后台预警不会运行；唤醒后自动恢复

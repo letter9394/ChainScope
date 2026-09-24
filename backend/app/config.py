@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     gold_api_url: str = "https://api.gold-api.com/price/XAU"
     massive_api_url: str = "https://api.massive.com"
     massive_api_key: str | None = None
+    massive_data_delay_days: int = 2
     market_cache_seconds: int = 60
     gold_cache_seconds: int = 15
     history_cache_seconds: int = 300

@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from app.config import Settings
@@ -80,6 +82,8 @@ async def test_gold_candles_use_exact_massive_xau_when_key_is_configured(
 
     async def massive(path: str, params: dict[str, object]) -> object:
         assert "/v2/aggs/ticker/C:XAUUSD/range/15/minute/" in path
+        expected_end = (datetime.now(UTC).date() - timedelta(days=2)).isoformat()
+        assert path.endswith(f"/{expected_end}")
         assert params["limit"] == 2
         assert params["apiKey"] == "test-key"
         return {"results": [

@@ -369,7 +369,12 @@ class CoinGeckoClient:
             raise MarketDataError("Massive API key is not configured")
 
         multiplier, timespan, lookback_days = MASSIVE_INTERVALS[interval]
-        end_date = datetime.now(UTC).date()
+        # Massive Basic exposes minute aggregates only after the trading day is
+        # finalized. Keep a two-day safety gap so the free tier never requests
+        # a current-day range (which returns HTTP 403). Paid real-time plans can
+        # set MASSIVE_DATA_DELAY_DAYS=0.
+        delay_days = max(0, self.settings.massive_data_delay_days)
+        end_date = datetime.now(UTC).date() - timedelta(days=delay_days)
         start_date = end_date - timedelta(days=lookback_days)
         path = (
             f"/v2/aggs/ticker/C:XAUUSD/range/{multiplier}/{timespan}/"
@@ -399,7 +404,7 @@ class CoinGeckoClient:
             provider="Massive Forex",
             is_proxy=False,
             proxy_notice=(
-                "现货 XAU/USD 聚合报价；Massive 免费方案可能提供延迟或日终数据，"
+                f"现货 XAU/USD 聚合报价；当前按 Massive 免费方案延迟 {delay_days} 天读取，"
                 "不等同于交易所实时成交价。"
             ),
             updated_at=datetime.now(UTC).isoformat(),
