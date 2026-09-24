@@ -92,8 +92,22 @@ class CoinGeckoClient:
                 response = await client.get(path, params=params)
                 response.raise_for_status()
                 return response.json()
-        except (httpx.HTTPError, ValueError) as exc:
-            raise MarketDataError("Massive market endpoint is temporarily unavailable") from exc
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            try:
+                error_payload = exc.response.json()
+                provider_message = str(
+                    error_payload.get("message") or error_payload.get("error") or "request rejected"
+                )
+            except (TypeError, ValueError):
+                provider_message = "request rejected"
+            safe_message = provider_message
+            if self.settings.massive_api_key:
+                safe_message = safe_message.replace(self.settings.massive_api_key, "[redacted]")
+            safe_message = safe_message[:160]
+            raise MarketDataError(f"Massive HTTP {status}: {safe_message}") from exc
+        except (httpx.RequestError, ValueError) as exc:
+            raise MarketDataError("Massive connection or response error") from exc
 
     async def _get(self, path: str, params: dict[str, Any]) -> Any:
         last_error: Exception | None = None
@@ -313,13 +327,15 @@ class CoinGeckoClient:
         if cached is not None:
             return cached
 
+        massive_failure_reason: str | None = None
         if asset_id == "gold" and self.settings.massive_api_key:
             try:
                 series = await self._get_massive_gold_candles(interval, limit)
                 cache.set(cache_key, series, self.settings.gold_candle_cache_seconds)
                 cache.set(f"{cache_key}:massive-last-good", series, 3_600)
                 return series
-            except MarketDataError:
+            except MarketDataError as exc:
+                massive_failure_reason = str(exc)
                 last_exact = cache.get(f"{cache_key}:massive-last-good")
                 if last_exact is not None:
                     return last_exact
@@ -348,6 +364,11 @@ class CoinGeckoClient:
             provider="Binance.US Spot" if "binance.us" in binance_base_url else "Binance Spot",
             is_proxy=is_proxy,
             proxy_notice=(
+                (
+                    f"Massive XAU/USD 暂不可用（{massive_failure_reason}），已自动降级为 "
+                    "PAXG/USDT 黄金代币行情；它不等同于现货 XAU/USD。"
+                )
+                if massive_failure_reason else
                 "当前 K 线使用 PAXG/USDT 黄金代币行情作为 XAU 走势代理，不等同于现货 XAU/USD。"
                 if is_proxy else None
             ),

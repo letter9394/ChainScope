@@ -124,6 +124,7 @@ async def test_gold_candles_fall_back_to_labeled_paxg_when_massive_fails(
     assert result.display_symbol == "PAXG/USDT"
     assert result.is_proxy is True
     assert result.proxy_notice is not None
+    assert "Massive unavailable" in result.proxy_notice
 
 
 def test_binance_endpoint_fallbacks_are_ordered_and_deduplicated() -> None:
