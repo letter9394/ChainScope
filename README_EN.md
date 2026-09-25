@@ -9,8 +9,9 @@ ChainScope is a full-stack Web3 market intelligence and risk alert platform buil
 - Click-to-switch in-app candlestick charts with 1/5/15/30-minute, 1/4-hour, daily, and weekly intervals
 - FastAPI proxies real Binance Spot candles for BTC, ETH, and SOL; with a Massive API key, gold uses real `C:XAUUSD` aggregate bars and automatically falls back to a clearly labeled PAXG/USDT proxy
 - Moving averages, volume, and a separate MACD pane are enabled by default, with configurable MA/BOLL/RSI/MACD parameters, crosshair OHLC inspection, fullscreen, pan, and zoom controls
-- Candles update incrementally from the server every two seconds; transient failures keep the last valid chart visible and retry automatically
+- Crypto candles update incrementally every two seconds, while delayed Massive gold bars sync every 20 seconds; transient failures keep the last valid chart visible
 - Transparent 0–100 score based on volatility, maximum drawdown, volume anomaly, and momentum
+- A 365-day rolling historical backtest reports high-risk signal hit rates and forward maximum drawdowns over 1, 3, and 7 days
 - Live CoinDesk news with source links, sentiment labels, and on-demand English-to-Chinese translation
 - Optional OpenAI-compatible news analysis with an honest rule-based fallback
 - Signed HttpOnly sessions, scrypt password hashes, and one-time email password recovery

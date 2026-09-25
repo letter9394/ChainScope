@@ -8,6 +8,7 @@ import { DerivativesPanel } from "@/components/DerivativesPanel";
 import { MarketCard } from "@/components/MarketCard";
 import { NewsPanel } from "@/components/NewsPanel";
 import { RiskPanel } from "@/components/RiskPanel";
+import { RiskBacktestPanel } from "@/components/RiskBacktestPanel";
 import { CandlestickChart } from "@/components/CandlestickChart";
 import { useLiveCryptoPrices } from "@/hooks/useLiveCryptoPrices";
 import { useLiquidationStream } from "@/hooks/useLiquidationStream";
@@ -25,6 +26,7 @@ import {
   getNews,
   getNotificationSettings,
   getRisk,
+  getRiskBacktest,
   getWatchlist,
   loginUser,
   logoutUser,
@@ -43,6 +45,7 @@ import type {
   NewsResponse,
   NotificationSettings,
   RiskAssessment,
+  RiskBacktestResult,
 } from "@/lib/types";
 
 const priceCurrency = new Intl.NumberFormat("en-US", {
@@ -59,6 +62,9 @@ export default function Home() {
   const [markets, setMarkets] = useState<MarketCoin[]>([]);
   const [selectedId, setSelectedId] = useState("bitcoin");
   const [risk, setRisk] = useState<RiskAssessment | null>(null);
+  const [riskBacktest, setRiskBacktest] = useState<RiskBacktestResult | null>(null);
+  const [backtestLoading, setBacktestLoading] = useState(true);
+  const [backtestError, setBacktestError] = useState<string | null>(null);
   const [news, setNews] = useState<NewsResponse | null>(null);
   const [watchlist, setWatchlist] = useState<string[]>([]);
   const [user, setUser] = useState<AuthUser | null | undefined>(undefined);
@@ -366,6 +372,28 @@ export default function Home() {
     return () => window.clearInterval(refreshTimer);
   }, [selectedId]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    setRiskBacktest(null);
+    setBacktestError(null);
+    if (selectedId === "gold") {
+      setBacktestLoading(false);
+      return () => controller.abort();
+    }
+    setBacktestLoading(true);
+    void getRiskBacktest(selectedId, controller.signal)
+      .then((result) => setRiskBacktest(result))
+      .catch((reason) => {
+        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+          setBacktestError(reason instanceof Error ? reason.message : "历史回测加载失败");
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setBacktestLoading(false);
+      });
+    return () => controller.abort();
+  }, [selectedId]);
+
   return (
     <main>
       <header className="site-header">
@@ -473,6 +501,13 @@ export default function Home() {
       <DerivativesPanel
         snapshot={risk?.market_context ?? null}
         liquidation={liquidationStats}
+        unavailable={selectedId === "gold"}
+      />
+
+      <RiskBacktestPanel
+        backtest={riskBacktest}
+        loading={backtestLoading}
+        error={backtestError}
         unavailable={selectedId === "gold"}
       />
 

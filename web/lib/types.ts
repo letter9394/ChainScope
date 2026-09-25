@@ -84,6 +84,40 @@ export interface RiskAssessment {
   market_context: DerivativesSnapshot | null;
 }
 
+export interface RiskBacktestHorizon {
+  horizon_days: number;
+  samples: number;
+  hit_count: number;
+  hit_rate_percent: number;
+  average_max_drawdown_percent: number;
+  worst_max_drawdown_percent: number;
+}
+
+export interface RiskBacktestSignal {
+  timestamp: number;
+  score: number;
+  price: number;
+  future_drawdowns: Record<string, number>;
+}
+
+export interface RiskBacktestResult {
+  coin_id: string;
+  symbol: string;
+  model_version: string;
+  history_days: number;
+  window_days: number;
+  risk_threshold: number;
+  hit_threshold_percent: number;
+  evaluated_points: number;
+  signal_count: number;
+  sample_start: number;
+  sample_end: number;
+  horizons: RiskBacktestHorizon[];
+  recent_signals: RiskBacktestSignal[];
+  methodology: string;
+  calculated_at: string;
+}
+
 export interface NewsArticle {
   id: string;
   title: string;

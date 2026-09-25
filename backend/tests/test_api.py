@@ -124,3 +124,20 @@ def test_unknown_coin_returns_404() -> None:
     response = client.get("/api/coins/dogecoin/risk?days=30")
 
     assert response.status_code == 404
+
+
+def test_risk_backtest_endpoint_returns_horizon_statistics() -> None:
+    response = client.get("/api/coins/bitcoin/risk/backtest?days=365")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["symbol"] == "BTC"
+    assert body["risk_threshold"] == 60
+    assert body["hit_threshold_percent"] == 3.0
+    assert [item["horizon_days"] for item in body["horizons"]] == [1, 3, 7]
+
+
+def test_risk_backtest_endpoint_rejects_unknown_coin() -> None:
+    response = client.get("/api/coins/dogecoin/risk/backtest?days=365")
+
+    assert response.status_code == 404

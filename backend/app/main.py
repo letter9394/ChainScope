@@ -19,7 +19,7 @@ from app.models import (
     NewsResponse, NewsTranslationRequest, NewsTranslationResponse,
     NotificationSettingsResponse, NotificationSettingsUpdate, NotificationTestResponse,
     PasswordResetConfirm, PasswordResetRequest, PasswordResetRequestResponse, RiskAssessment,
-    WatchlistItem,
+    RiskBacktestResult, WatchlistItem,
 )
 from app.services.alerts import AlertRepository, evaluate_alert_rules
 from app.services.auth import (
@@ -33,7 +33,7 @@ from app.services.notifications import (
     NotificationRepository, NotificationService, email_is_configured,
     email_provider, preference_response,
 )
-from app.services.risk import assess_risk
+from app.services.risk import assess_risk, backtest_risk
 from app.services.scheduler import run_alert_scheduler
 from app.services.watchlist import WatchlistRepository
 
@@ -299,6 +299,35 @@ async def derivatives(
         return await get_derivatives_snapshot(settings, coin_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get(
+    "/api/coins/{coin_id}/risk/backtest",
+    response_model=RiskBacktestResult,
+    tags=["risk"],
+)
+async def risk_backtest(
+    coin_id: str,
+    days: int = Query(default=365, ge=90, le=365),
+    window_days: int = Query(default=30, ge=7, le=90),
+    risk_threshold: int = Query(default=60, ge=0, le=100),
+    hit_threshold_percent: float = Query(default=3.0, gt=0, le=50),
+    client: CoinGeckoClient = Depends(get_market_client),
+) -> RiskBacktestResult:
+    try:
+        history_points = await client.get_history(coin_id, days)
+        return backtest_risk(
+            coin_id=coin_id,
+            symbol=SUPPORTED_COINS[coin_id],
+            history=history_points,
+            window_days=window_days,
+            risk_threshold=risk_threshold,
+            hit_threshold_percent=hit_threshold_percent,
+        )
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=404, detail=f"Unsupported coin or insufficient history: {coin_id}") from exc
+    except MarketDataError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @app.get("/api/news", response_model=NewsResponse, tags=["news"])

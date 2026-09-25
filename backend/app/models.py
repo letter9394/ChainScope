@@ -85,6 +85,40 @@ class RiskAssessment(BaseModel):
     market_context: DerivativesSnapshot | None = None
 
 
+class RiskBacktestHorizon(BaseModel):
+    horizon_days: int
+    samples: int
+    hit_count: int
+    hit_rate_percent: float
+    average_max_drawdown_percent: float
+    worst_max_drawdown_percent: float
+
+
+class RiskBacktestSignal(BaseModel):
+    timestamp: int
+    score: int
+    price: float
+    future_drawdowns: dict[str, float]
+
+
+class RiskBacktestResult(BaseModel):
+    coin_id: str
+    symbol: str
+    model_version: str
+    history_days: int
+    window_days: int
+    risk_threshold: int
+    hit_threshold_percent: float
+    evaluated_points: int
+    signal_count: int
+    sample_start: int
+    sample_end: int
+    horizons: list[RiskBacktestHorizon]
+    recent_signals: list[RiskBacktestSignal]
+    methodology: str
+    calculated_at: str
+
+
 class HealthResponse(BaseModel):
     status: Literal["ok"]
     environment: str

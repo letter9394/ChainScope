@@ -1,7 +1,7 @@
 import pytest
 
 from app.models import DerivativesSnapshot, HistoryPoint
-from app.services.risk import assess_risk
+from app.services.risk import assess_risk, backtest_risk
 
 
 def points(prices: list[float], volumes: list[float] | None = None) -> list[HistoryPoint]:
@@ -98,3 +98,39 @@ def test_enhanced_model_adds_live_market_metrics() -> None:
     assert {"funding_rate", "open_interest", "position_crowding", "fear_greed"} <= keys
     assert result.market_context == derivatives
     assert result.score == sum(metric.contribution for metric in result.metrics)
+
+
+def test_backtest_measures_forward_drawdowns_after_new_high_risk_signal() -> None:
+    history = points(
+        [100] * 10 + [150, 100, 95, 80, 85, 75, 70, 72, 74],
+        [100] * 11 + [400, 180, 170, 160, 150, 140, 130, 120],
+    )
+
+    result = backtest_risk(
+        "bitcoin",
+        "BTC",
+        history,
+        window_days=8,
+        risk_threshold=60,
+        hit_threshold_percent=3,
+    )
+
+    assert result.signal_count == 1
+    assert result.recent_signals[0].score >= 60
+    assert result.recent_signals[0].future_drawdowns == {
+        "1": 5.0,
+        "3": 20.0,
+        "7": 30.0,
+    }
+    assert [item.hit_rate_percent for item in result.horizons] == [100.0, 100.0, 100.0]
+    assert [item.worst_max_drawdown_percent for item in result.horizons] == [5.0, 20.0, 30.0]
+
+
+def test_backtest_returns_zero_rates_when_no_high_risk_signal_occurs() -> None:
+    history = points([100 + index * 0.1 for index in range(40)])
+
+    result = backtest_risk("ethereum", "ETH", history, window_days=8)
+
+    assert result.signal_count == 0
+    assert all(item.samples == 0 for item in result.horizons)
+    assert all(item.hit_rate_percent == 0 for item in result.horizons)

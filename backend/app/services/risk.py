@@ -2,7 +2,10 @@ import math
 import statistics
 from datetime import UTC, datetime
 
-from app.models import DerivativesSnapshot, HistoryPoint, NewsArticle, RiskAssessment, RiskMetric
+from app.models import (
+    DerivativesSnapshot, HistoryPoint, NewsArticle, RiskAssessment,
+    RiskBacktestHorizon, RiskBacktestResult, RiskBacktestSignal, RiskMetric,
+)
 
 
 def _daily_returns(prices: list[float]) -> list[float]:
@@ -304,4 +307,109 @@ def assess_risk(
         sample_days=len(prices),
         calculated_at=datetime.now(UTC).isoformat(),
         market_context=derivatives,
+    )
+
+
+def backtest_risk(
+    coin_id: str,
+    symbol: str,
+    history: list[HistoryPoint],
+    *,
+    window_days: int = 30,
+    risk_threshold: int = 60,
+    hit_threshold_percent: float = 3.0,
+    horizons: tuple[int, ...] = (1, 3, 7),
+) -> RiskBacktestResult:
+    if window_days < 2:
+        raise ValueError("Backtest window must contain at least two days")
+    if not horizons or min(horizons) < 1:
+        raise ValueError("Backtest horizons must be positive")
+    if not 0 <= risk_threshold <= 100:
+        raise ValueError("Risk threshold must be between 0 and 100")
+    if hit_threshold_percent <= 0:
+        raise ValueError("Hit threshold must be positive")
+
+    clean_by_timestamp = {
+        point.timestamp: point
+        for point in history
+        if point.price > 0
+    }
+    clean_history = [clean_by_timestamp[key] for key in sorted(clean_by_timestamp)]
+    maximum_horizon = max(horizons)
+    required_points = window_days + maximum_horizon + 1
+    if len(clean_history) < required_points:
+        raise ValueError(f"At least {required_points} history points are required for backtesting")
+
+    last_signal_index = len(clean_history) - maximum_horizon - 1
+    previous_score: int | None = None
+    evaluated_points = 0
+    signals: list[RiskBacktestSignal] = []
+    drawdowns_by_horizon: dict[int, list[float]] = {days: [] for days in horizons}
+
+    for index in range(window_days - 1, last_signal_index + 1):
+        window = clean_history[index - window_days + 1:index + 1]
+        assessment = assess_risk(coin_id, symbol, window)
+        evaluated_points += 1
+        is_new_high_risk_signal = (
+            previous_score is not None
+            and previous_score < risk_threshold <= assessment.score
+        )
+        previous_score = assessment.score
+        if not is_new_high_risk_signal:
+            continue
+
+        signal_price = clean_history[index].price
+        future_drawdowns: dict[str, float] = {}
+        for horizon_days in horizons:
+            future_prices = [
+                point.price
+                for point in clean_history[index + 1:index + horizon_days + 1]
+            ]
+            minimum_future_price = min(future_prices)
+            maximum_drawdown = max(0.0, (signal_price - minimum_future_price) / signal_price * 100)
+            rounded_drawdown = round(maximum_drawdown, 2)
+            drawdowns_by_horizon[horizon_days].append(rounded_drawdown)
+            future_drawdowns[str(horizon_days)] = rounded_drawdown
+
+        signals.append(RiskBacktestSignal(
+            timestamp=clean_history[index].timestamp,
+            score=assessment.score,
+            price=round(signal_price, 8),
+            future_drawdowns=future_drawdowns,
+        ))
+
+    horizon_results: list[RiskBacktestHorizon] = []
+    for horizon_days in horizons:
+        values = drawdowns_by_horizon[horizon_days]
+        hit_count = sum(value >= hit_threshold_percent for value in values)
+        horizon_results.append(RiskBacktestHorizon(
+            horizon_days=horizon_days,
+            samples=len(values),
+            hit_count=hit_count,
+            hit_rate_percent=round(hit_count / len(values) * 100, 1) if values else 0.0,
+            average_max_drawdown_percent=(
+                round(statistics.mean(values), 2) if values else 0.0
+            ),
+            worst_max_drawdown_percent=round(max(values), 2) if values else 0.0,
+        ))
+
+    return RiskBacktestResult(
+        coin_id=coin_id,
+        symbol=symbol,
+        model_version="基础价格模型 v0.1",
+        history_days=len(clean_history),
+        window_days=window_days,
+        risk_threshold=risk_threshold,
+        hit_threshold_percent=hit_threshold_percent,
+        evaluated_points=evaluated_points,
+        signal_count=len(signals),
+        sample_start=clean_history[0].timestamp,
+        sample_end=clean_history[-1].timestamp,
+        horizons=horizon_results,
+        recent_signals=signals[-5:][::-1],
+        methodology=(
+            f"使用{window_days}日滚动基础风险分；仅记录风险分首次上穿阈值的日期。"
+            "命中表示信号后指定窗口内，相对信号日收盘价的最大跌幅达到设定标准。"
+        ),
+        calculated_at=datetime.now(UTC).isoformat(),
     )

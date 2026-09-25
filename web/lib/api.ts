@@ -14,6 +14,7 @@ import type {
   NotificationTestResult,
   PasswordResetRequestResult,
   RiskAssessment,
+  RiskBacktestResult,
   WatchlistItem,
 } from "./types";
 
@@ -79,6 +80,12 @@ export const getCandles = (
 
 export const getRisk = (coinId: string, days = 30, signal?: AbortSignal) =>
   apiRequest<RiskAssessment>(`/api/coins/${coinId}/risk?days=${days}`, signal);
+
+export const getRiskBacktest = (coinId: string, signal?: AbortSignal) =>
+  apiRequest<RiskBacktestResult>(
+    `/api/coins/${coinId}/risk/backtest?days=365&window_days=30&risk_threshold=60&hit_threshold_percent=3`,
+    signal,
+  );
 
 export const getNews = (coinId: string, limit = 6, signal?: AbortSignal) =>
   apiRequest<NewsResponse>(`/api/news?coin_id=${coinId}&limit=${limit}`, signal);
