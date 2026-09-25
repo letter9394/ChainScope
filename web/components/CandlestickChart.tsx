@@ -416,7 +416,12 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
     const parameterKey = JSON.stringify(parameters);
     const renderKey = `${assetId}:${interval}:${series.symbol}:${series.provider}:${subIndicator}:${parameterKey}`;
     const previousLastTime = renderedLastTimeRef.current;
-    const fullRender = renderedKeyRef.current !== renderKey || previousLastTime === 0;
+    const currentLastTime = series.candles.at(-1)?.time ?? 0;
+    const fullRender = (
+      renderedKeyRef.current !== renderKey
+      || previousLastTime === 0
+      || currentLastTime < previousLastTime
+    );
 
     if (fullRender) {
       candles.setData(candleData);
@@ -433,13 +438,13 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
       indicators.rsi?.setData(rsi);
       renderedKeyRef.current = renderKey;
     } else {
-      candleData.slice(-2).forEach((point) => candles.update(point, Number(point.time) < previousLastTime));
-      volumeData.slice(-2).forEach((point) => volume.update(point, Number(point.time) < previousLastTime));
+      candleData.filter((point) => Number(point.time) >= previousLastTime).forEach((point) => candles.update(point));
+      volumeData.filter((point) => Number(point.time) >= previousLastTime).forEach((point) => volume.update(point));
       const updateLine = (api: LineApi | null, data: LineData<UTCTimestamp>[]) => {
-        data.slice(-2).forEach((point) => api?.update(point, Number(point.time) < previousLastTime));
+        data.filter((point) => Number(point.time) >= previousLastTime).forEach((point) => api?.update(point));
       };
       const updateHistogram = (api: HistogramApi | null, data: HistogramData<UTCTimestamp>[]) => {
-        data.slice(-2).forEach((point) => api?.update(point, Number(point.time) < previousLastTime));
+        data.filter((point) => Number(point.time) >= previousLastTime).forEach((point) => api?.update(point));
       };
       updateLine(indicators.ma5, maFast);
       updateLine(indicators.ma10, maMedium);
@@ -452,7 +457,7 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
       updateHistogram(indicators.macdHistogram, macd.histogram);
       updateLine(indicators.rsi, rsi);
     }
-    renderedLastTimeRef.current = series.candles.at(-1)?.time ?? 0;
+    renderedLastTimeRef.current = currentLastTime;
     chart.timeScale().applyOptions({ timeVisible: !["1d", "1w"].includes(interval) });
 
     const fittedKey = `${assetId}:${interval}:${series.symbol}:${series.provider}:${subIndicator}`;

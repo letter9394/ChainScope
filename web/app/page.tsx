@@ -10,6 +10,7 @@ import { NewsPanel } from "@/components/NewsPanel";
 import { RiskPanel } from "@/components/RiskPanel";
 import { RiskBacktestPanel } from "@/components/RiskBacktestPanel";
 import { CandlestickChart } from "@/components/CandlestickChart";
+import { ChartErrorBoundary } from "@/components/ChartErrorBoundary";
 import { useLiveCryptoPrices } from "@/hooks/useLiveCryptoPrices";
 import { useLiquidationStream } from "@/hooks/useLiquidationStream";
 import {
@@ -555,7 +556,9 @@ export default function Home() {
               </div>
             ) : null}
           </div>
-          <CandlestickChart assetId={selectedId} symbol={selectedCoin?.symbol ?? "Asset"} />
+          <ChartErrorBoundary resetKey={selectedId}>
+            <CandlestickChart assetId={selectedId} symbol={selectedCoin?.symbol ?? "Asset"} />
+          </ChartErrorBoundary>
         </div>
         <RiskPanel risk={risk} loading={loadingDetail} unavailable={selectedId === "gold"} />
       </section>

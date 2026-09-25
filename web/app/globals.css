@@ -66,6 +66,10 @@ main { width: min(1220px, calc(100% - 40px)); margin: 0 auto; }
 .email-verification-status { display: inline-flex; margin-top: 12px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 9px; font-weight: 800; letter-spacing: .04em; }
 .email-verification-status.verified { color: var(--accent); border-color: rgba(101,230,190,.28); background: rgba(101,230,190,.06); }
 .email-verification-status.pending { color: #ffcc74; border-color: rgba(255,204,116,.3); background: rgba(255,204,116,.07); }
+.chart-safe-error { display: grid; place-items: center; gap: 10px; min-height: 360px; padding: 32px; border: 1px solid rgba(255,95,120,.28); border-radius: 16px; background: rgba(255,95,120,.05); text-align: center; }
+.chart-safe-error strong { color: #ff9aa8; font-size: 16px; }
+.chart-safe-error span { color: var(--muted); font-size: 11px; }
+.chart-safe-error button { color: var(--text); border: 1px solid var(--line); border-radius: 999px; background: transparent; padding: 9px 16px; cursor: pointer; }
 .auth-form, .notification-form { display: grid; gap: 12px; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,.018); }
 .auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 4px; border-radius: 12px; background: rgba(255,255,255,.035); }
 .auth-tabs button { border: 0; border-radius: 9px; color: var(--muted); background: transparent; padding: 8px; cursor: pointer; }
