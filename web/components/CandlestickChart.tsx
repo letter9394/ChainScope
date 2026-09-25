@@ -69,6 +69,12 @@ interface IndicatorSeriesRefs {
 interface CandlestickChartProps {
   assetId: string;
   symbol: string;
+  onLatestQuoteChange?: (quote: {
+    assetId: string;
+    price: number;
+    displaySymbol: string;
+    isProxy: boolean;
+  } | null) => void;
 }
 
 const emptyIndicatorRefs = (): IndicatorSeriesRefs => ({
@@ -163,7 +169,7 @@ function rsiData(candles: CandlePoint[], period = 14): LineData<UTCTimestamp>[] 
   return points;
 }
 
-export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
+export function CandlestickChart({ assetId, symbol, onLatestQuoteChange }: CandlestickChartProps) {
   const [interval, setIntervalValue] = useState<CandleInterval>("15m");
   const [series, setSeries] = useState<CandleSeriesResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -519,6 +525,19 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
   const latest = series?.candles.at(-1);
   const showingExactGold = assetId === "gold"
     && (series ? series.is_proxy === false : goldSource === "exact");
+
+  useEffect(() => {
+    if (!series || !latest) {
+      onLatestQuoteChange?.(null);
+      return;
+    }
+    onLatestQuoteChange?.({
+      assetId,
+      price: latest.close,
+      displaySymbol: series.display_symbol,
+      isProxy: series.is_proxy,
+    });
+  }, [assetId, latest, onLatestQuoteChange, series]);
   const activeCandle = inspectedCandle ?? latest;
   const priceDigits = activeCandle && activeCandle.close < 10 ? 4 : 2;
   const activeCandleTime = activeCandle

@@ -51,6 +51,13 @@ import type {
   RiskBacktestResult,
 } from "@/lib/types";
 
+interface ChartQuote {
+  assetId: string;
+  price: number;
+  displaySymbol: string;
+  isProxy: boolean;
+}
+
 const priceCurrency = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
@@ -83,6 +90,7 @@ export default function Home() {
   const [loadingMarkets, setLoadingMarkets] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [chartQuote, setChartQuote] = useState<ChartQuote | null>(null);
   const liveMarketStatus = useLiveCryptoPrices(setMarkets);
   const liquidationStats = useLiquidationStream(selectedId);
 
@@ -96,6 +104,10 @@ export default function Home() {
     () => markets.find((coin) => coin.id === selectedId) ?? markets[0],
     [markets, selectedId],
   );
+  const selectedChartQuote = selectedId === "gold" && chartQuote?.assetId === selectedId
+    ? chartQuote
+    : null;
+  const displayedPanelPrice = selectedChartQuote?.price ?? selectedCoin?.current_price;
   const activeAlerts = useMemo(
     () => alertEvents.filter((event) => !event.acknowledged_at),
     [alertEvents],
@@ -541,10 +553,12 @@ export default function Home() {
               <span className="panel-eyebrow">MULTI-TIMEFRAME CANDLESTICK</span>
               <h2>{selectedId === "gold" ? "黄金 K线图" : `${selectedCoin?.name ?? "市场"} K线图`}</h2>
             </div>
-            {selectedCoin ? (
+            {selectedCoin && displayedPanelPrice !== undefined ? (
               <div className="current-quote">
-                <strong>{priceCurrency.format(selectedCoin.current_price)}</strong>
-                <span>{selectedId === "gold" ? "XAU/USD 当前参考价" : `${selectedCoin.symbol} / USD`}</span>
+                <strong>{priceCurrency.format(displayedPanelPrice)}</strong>
+                <span>{selectedChartQuote
+                  ? `${selectedChartQuote.displaySymbol} K线最新价${selectedChartQuote.isProxy ? "（实时代理）" : "（延迟历史）"}`
+                  : selectedId === "gold" ? "XAU/USD 当前参考价" : `${selectedCoin.symbol} / USD`}</span>
                 <button
                   className={`watch-button ${watchlist.includes(selectedCoin.id) ? "saved" : ""}`}
                   type="button"
@@ -557,7 +571,11 @@ export default function Home() {
             ) : null}
           </div>
           <ChartErrorBoundary resetKey={selectedId}>
-            <CandlestickChart assetId={selectedId} symbol={selectedCoin?.symbol ?? "Asset"} />
+            <CandlestickChart
+              assetId={selectedId}
+              symbol={selectedCoin?.symbol ?? "Asset"}
+              onLatestQuoteChange={setChartQuote}
+            />
           </ChartErrorBoundary>
         </div>
         <RiskPanel risk={risk} loading={loadingDetail} unavailable={selectedId === "gold"} />
