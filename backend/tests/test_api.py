@@ -24,7 +24,13 @@ class FakeMarketClient:
             for index in range(max(8, days))
         ]
 
-    async def get_candles(self, asset_id: str, interval: str, limit: int) -> CandleSeries:
+    async def get_candles(
+        self,
+        asset_id: str,
+        interval: str,
+        limit: int,
+        source: str = "auto",
+    ) -> CandleSeries:
         if asset_id not in {"bitcoin", "ethereum", "solana", "gold"}:
             raise ValueError(f"Unsupported asset: {asset_id}")
         return CandleSeries(
@@ -75,6 +81,19 @@ def test_candles_endpoint_accepts_two_point_incremental_request() -> None:
 
     assert response.status_code == 200
     assert len(response.json()["candles"]) == 2
+
+
+def test_candles_endpoint_accepts_realtime_gold_proxy_source() -> None:
+    response = client.get("/api/assets/gold/candles?interval=1m&limit=300&source=proxy")
+
+    assert response.status_code == 200
+    assert response.json()["is_proxy"] is True
+
+
+def test_candles_endpoint_rejects_unknown_source() -> None:
+    response = client.get("/api/assets/gold/candles?source=unknown")
+
+    assert response.status_code == 422
 
 
 def test_candles_endpoint_rejects_unknown_asset() -> None:

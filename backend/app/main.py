@@ -185,10 +185,11 @@ async def asset_candles(
     asset_id: str,
     interval: str = Query(default="15m"),
     limit: int = Query(default=300, ge=2, le=1_000),
+    source: str = Query(default="auto", pattern="^(auto|exact|proxy)$"),
     client: CoinGeckoClient = Depends(get_market_client),
 ) -> CandleSeries:
     try:
-        return await client.get_candles(asset_id, interval, limit)
+        return await client.get_candles(asset_id, interval, limit, source)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except MarketDataError as exc:

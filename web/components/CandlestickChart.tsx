@@ -29,6 +29,7 @@ const intervals: Array<{ value: CandleInterval; label: string }> = [
 
 type SubIndicator = "MACD" | "RSI" | null;
 type IncrementalStatus = "connecting" | "live" | "retrying";
+type GoldSource = "proxy" | "exact";
 type LineApi = ISeriesApi<"Line">;
 type HistogramApi = ISeriesApi<"Histogram">;
 
@@ -177,6 +178,7 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
   const [incrementalStatus, setIncrementalStatus] = useState<IncrementalStatus>("connecting");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
+  const [goldSource, setGoldSource] = useState<GoldSource>("proxy");
   const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -194,34 +196,36 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
 
   const loadInitial = useCallback(async (generation: number, signal?: AbortSignal) => {
     try {
-      const result = await getCandles(assetId, interval, 300, signal);
-      if (signal?.aborted || requestGenerationRef.current !== generation) return false;
+      const source = assetId === "gold" ? goldSource : undefined;
+      const result = await getCandles(assetId, interval, 300, signal, source);
+      if (signal?.aborted || requestGenerationRef.current !== generation) return null;
       if (result.asset_id !== assetId || result.interval !== interval || result.candles.length < 2) {
         throw new Error("K线数据不完整，请重试");
       }
       setSeries(result);
       setError(null);
       setIncrementalStatus("live");
-      return true;
+      return result;
     } catch (reason) {
       if (!signal?.aborted && requestGenerationRef.current === generation) {
         setError(reason instanceof Error ? reason.message : "K线数据加载失败");
         setIncrementalStatus("retrying");
       }
-      return false;
+      return null;
     } finally {
       if (!signal?.aborted && requestGenerationRef.current === generation) {
         setLoading(false);
       }
     }
-  }, [assetId, interval]);
+  }, [assetId, goldSource, interval]);
 
   const loadIncremental = useCallback(async (generation: number) => {
     if (requestGenerationRef.current !== generation) return;
     if (incrementalInFlightRef.current === generation) return;
     incrementalInFlightRef.current = generation;
     try {
-      const result = await getCandles(assetId, interval, 2);
+      const source = assetId === "gold" ? goldSource : undefined;
+      const result = await getCandles(assetId, interval, 2, undefined, source);
       if (requestGenerationRef.current !== generation) return;
       setSeries((current) => {
         // An incremental response is never a valid replacement for the complete
@@ -245,7 +249,7 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
         incrementalInFlightRef.current = null;
       }
     }
-  }, [assetId, interval]);
+  }, [assetId, goldSource, interval]);
 
   useEffect(() => {
     const generation = requestGenerationRef.current + 1;
@@ -262,9 +266,11 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
     renderedFirstTimeRef.current = 0;
     renderedLastTimeRef.current = 0;
     renderedCountRef.current = 0;
-    void loadInitial(generation, controller.signal).then((loaded) => {
-      if (loaded && !controller.signal.aborted && requestGenerationRef.current === generation) {
-        const refreshMilliseconds = assetId === "gold" ? 20_000 : 2_000;
+    void loadInitial(generation, controller.signal).then((loadedSeries) => {
+      if (loadedSeries && !controller.signal.aborted && requestGenerationRef.current === generation) {
+        const refreshMilliseconds = assetId === "gold" && !loadedSeries.is_proxy
+          ? 5 * 60_000
+          : 2_000;
         timer = window.setInterval(() => void loadIncremental(generation), refreshMilliseconds);
       }
     });
@@ -511,6 +517,8 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
   }, [series]);
 
   const latest = series?.candles.at(-1);
+  const showingExactGold = assetId === "gold"
+    && (series ? series.is_proxy === false : goldSource === "exact");
   const activeCandle = inspectedCandle ?? latest;
   const priceDigits = activeCandle && activeCandle.close < 10 ? 4 : 2;
   const activeCandleTime = activeCandle
@@ -549,6 +557,17 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
   return (
     <div className="candlestick-shell" ref={shellRef}>
       <div className="chart-toolbar">
+        {assetId === "gold" ? (
+          <div className="gold-source-row" aria-label="黄金K线数据模式">
+            <span>数据模式</span>
+            <button className={goldSource === "proxy" ? "active" : ""} type="button" onClick={() => setGoldSource("proxy")}>
+              实时代理 PAXG
+            </button>
+            <button className={goldSource === "exact" ? "active" : ""} type="button" onClick={() => setGoldSource("exact")}>
+              精确现货 XAU/USD（延迟2天）
+            </button>
+          </div>
+        ) : null}
         <div className="timeframe-row" aria-label={`${symbol} K线周期`}>
           {intervals.map((item) => (
             <button className={interval === item.value ? "active" : ""} type="button" key={item.value} onClick={() => setIntervalValue(item.value)}>
@@ -567,7 +586,7 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
           <button type="button" onClick={() => void toggleFullscreen()}>{isFullscreen ? "退出全屏" : "全屏"}</button>
           <span className={`incremental-status ${incrementalStatus}`}>
             {incrementalStatus === "live"
-              ? assetId === "gold" ? "20秒同步" : "2秒增量"
+              ? showingExactGold ? "历史数据 · 延迟2天" : assetId === "gold" ? "2秒实时代理" : "2秒增量"
               : incrementalStatus === "retrying" ? "正在重连" : "正在连接"}
           </span>
         </div>
@@ -616,8 +635,10 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
 
       {assetId === "gold" ? (
         <div className="proxy-notice" role="note">
-          <strong>{series?.is_proxy === false ? "XAU/USD 现货黄金行情" : "PAXG 黄金代理行情"}</strong>
-          <span>{series?.proxy_notice ?? "当前 K 线使用 PAXG/USDT 作为 XAU 走势代理，不等同于现货 XAU/USD。"}</span>
+          <strong>{showingExactGold ? "XAU/USD 精确历史行情" : "PAXG 实时黄金代理行情"}</strong>
+          <span>{series?.proxy_notice ?? (showingExactGold
+            ? "现货 XAU/USD 聚合报价；Massive 免费方案延迟 2 天，不会随当前价格实时跳动。"
+            : "当前 K 线使用 PAXG/USDT 实时代理黄金走势；它接近但不等同于现货 XAU/USD。")}</span>
         </div>
       ) : null}
 

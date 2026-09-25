@@ -317,19 +317,28 @@ class CoinGeckoClient:
         cache.set(f"history:{coin_id}:{days}", history, self.settings.history_cache_seconds)
         return history
 
-    async def get_candles(self, asset_id: str, interval: str, limit: int) -> CandleSeries:
+    async def get_candles(
+        self,
+        asset_id: str,
+        interval: str,
+        limit: int,
+        source: str = "auto",
+    ) -> CandleSeries:
         if asset_id not in CANDLE_BINANCE_SYMBOLS:
             raise ValueError(f"Unsupported asset: {asset_id}")
         if interval not in CANDLE_INTERVALS:
             raise ValueError(f"Unsupported candle interval: {interval}")
+        if source not in {"auto", "exact", "proxy"}:
+            raise ValueError(f"Unsupported candle source: {source}")
 
-        cache_key = f"candles:{asset_id}:{interval}:{limit}"
+        resolved_source = source if asset_id == "gold" else "auto"
+        cache_key = f"candles:{asset_id}:{interval}:{limit}:{resolved_source}"
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
 
         massive_failure_reason: str | None = None
-        if asset_id == "gold" and self.settings.massive_api_key:
+        if asset_id == "gold" and source != "proxy" and self.settings.massive_api_key:
             try:
                 series = await self._get_massive_gold_candles(interval, limit)
                 cache.set(cache_key, series, self.settings.gold_candle_cache_seconds)
@@ -378,7 +387,7 @@ class CoinGeckoClient:
         )
         cache_seconds = (
             self.settings.gold_candle_cache_seconds
-            if asset_id == "gold"
+            if asset_id == "gold" and source != "proxy"
             else self.settings.candle_cache_seconds
         )
         cache.set(cache_key, series, cache_seconds)

@@ -539,12 +539,12 @@ export default function Home() {
           <div className="panel-header">
             <div>
               <span className="panel-eyebrow">MULTI-TIMEFRAME CANDLESTICK</span>
-              <h2>{selectedId === "gold" ? "黄金代理 K线图" : `${selectedCoin?.name ?? "市场"} K线图`}</h2>
+              <h2>{selectedId === "gold" ? "黄金 K线图" : `${selectedCoin?.name ?? "市场"} K线图`}</h2>
             </div>
             {selectedCoin ? (
               <div className="current-quote">
                 <strong>{priceCurrency.format(selectedCoin.current_price)}</strong>
-                <span>{selectedCoin.symbol} / USD</span>
+                <span>{selectedId === "gold" ? "XAU/USD 当前参考价" : `${selectedCoin.symbol} / USD`}</span>
                 <button
                   className={`watch-button ${watchlist.includes(selectedCoin.id) ? "saved" : ""}`}
                   type="button"

@@ -133,6 +133,31 @@ async def test_gold_candles_fall_back_to_labeled_paxg_when_massive_fails(
 
 
 @pytest.mark.anyio
+async def test_gold_proxy_source_uses_binance_without_calling_massive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache.clear()
+    client = CoinGeckoClient(Settings(massive_api_key="test-key"))
+
+    async def unexpected_massive(interval: str, limit: int) -> object:
+        raise AssertionError("proxy mode must not call Massive")
+
+    async def binance(path: str, params: dict[str, object]) -> tuple[object, str]:
+        return ([
+            [1_700_000_000_000, "2000", "2005", "1998", "2003", "12"],
+            [1_700_000_060_000, "2003", "2008", "2001", "2006", "15"],
+        ], "https://api.binance.com")
+
+    monkeypatch.setattr(client, "_get_massive_gold_candles", unexpected_massive)
+    monkeypatch.setattr(client, "_get_binance", binance)
+    result = await client.get_candles("gold", "1m", 2, source="proxy")
+
+    assert result.display_symbol == "PAXG/USDT"
+    assert result.provider == "Binance Spot"
+    assert result.is_proxy is True
+
+
+@pytest.mark.anyio
 async def test_full_gold_chart_rejects_sparse_massive_history(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

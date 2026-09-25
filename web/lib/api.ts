@@ -74,8 +74,9 @@ export const getCandles = (
   interval: CandleInterval,
   limit = 300,
   signal?: AbortSignal,
+  source?: "exact" | "proxy",
 ) => apiRequest<CandleSeries>(
-  `/api/assets/${encodeURIComponent(assetId)}/candles?interval=${encodeURIComponent(interval)}&limit=${limit}`,
+  `/api/assets/${encodeURIComponent(assetId)}/candles?interval=${encodeURIComponent(interval)}&limit=${limit}${source ? `&source=${source}` : ""}`,
   signal,
 );
 

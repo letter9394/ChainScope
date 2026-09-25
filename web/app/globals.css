@@ -149,6 +149,10 @@ main { width: min(1220px, calc(100% - 40px)); margin: 0 auto; }
 .chart-loading, .chart-empty { display: grid; place-items: center; height: 360px; color: var(--muted); }
 .candlestick-shell { margin-top: 24px; }
 .chart-toolbar { display: grid; gap: 10px; margin-bottom: 12px; }
+.gold-source-row { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; padding: 9px 10px; border: 1px solid rgba(255,198,108,.22); border-radius: 9px; background: rgba(255,198,108,.045); }
+.gold-source-row > span { color: var(--warning); font-size: 9px; letter-spacing: .12em; margin-right: 2px; }
+.gold-source-row button { color: var(--muted); border: 1px solid var(--line); background: transparent; border-radius: 999px; padding: 6px 10px; font-size: 9px; cursor: pointer; }
+.gold-source-row button:hover, .gold-source-row button.active { color: #07100e; border-color: var(--warning); background: var(--warning); }
 .timeframe-row, .indicator-row { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
 .timeframe-row { margin-bottom: 0; }
 .timeframe-row button { color: var(--muted); border: 1px solid var(--line); background: rgba(255,255,255,.018); border-radius: 999px; padding: 7px 11px; font-size: 10px; cursor: pointer; }
