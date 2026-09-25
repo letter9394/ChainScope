@@ -132,6 +132,31 @@ async def test_gold_candles_fall_back_to_labeled_paxg_when_massive_fails(
     assert "Massive unavailable" in result.proxy_notice
 
 
+@pytest.mark.anyio
+async def test_full_gold_chart_rejects_sparse_massive_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache.clear()
+    client = CoinGeckoClient(Settings(massive_api_key="test-key"))
+
+    async def sparse_massive(path: str, params: dict[str, object]) -> object:
+        return {"resultsCount": 6, "results": [
+            {
+                "t": 1_700_000_000_000 + index * 3_600_000,
+                "o": 2_000 + index,
+                "h": 2_005 + index,
+                "l": 1_998 + index,
+                "c": 2_003 + index,
+            }
+            for index in range(6)
+        ]}
+
+    monkeypatch.setattr(client, "_get_massive", sparse_massive)
+
+    with pytest.raises(MarketDataError, match="at least 60"):
+        await client._get_massive_gold_candles("1h", 300)
+
+
 def test_binance_endpoint_fallbacks_are_ordered_and_deduplicated() -> None:
     settings = Settings(
         binance_market_url="https://primary.example/",

@@ -176,6 +176,7 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
   const [inspectedCandle, setInspectedCandle] = useState<CandlePoint | null>(null);
   const [incrementalStatus, setIncrementalStatus] = useState<IncrementalStatus>("connecting");
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [reloadNonce, setReloadNonce] = useState(0);
   const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -184,49 +185,72 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
   const indicatorRefs = useRef<IndicatorSeriesRefs>(emptyIndicatorRefs());
   const fittedKeyRef = useRef("");
   const renderedKeyRef = useRef("");
+  const renderedFirstTimeRef = useRef(0);
   const renderedLastTimeRef = useRef(0);
+  const renderedCountRef = useRef(0);
   const candleLookupRef = useRef<Map<number, CandlePoint>>(new Map());
-  const incrementalInFlightRef = useRef(false);
+  const requestGenerationRef = useRef(0);
+  const incrementalInFlightRef = useRef<number | null>(null);
 
-  const loadInitial = useCallback(async (signal?: AbortSignal) => {
+  const loadInitial = useCallback(async (generation: number, signal?: AbortSignal) => {
     try {
       const result = await getCandles(assetId, interval, 300, signal);
+      if (signal?.aborted || requestGenerationRef.current !== generation) return false;
+      if (result.asset_id !== assetId || result.interval !== interval || result.candles.length < 2) {
+        throw new Error("K线数据不完整，请重试");
+      }
       setSeries(result);
       setError(null);
       setIncrementalStatus("live");
+      return true;
     } catch (reason) {
-      if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+      if (!signal?.aborted && requestGenerationRef.current === generation) {
         setError(reason instanceof Error ? reason.message : "K线数据加载失败");
         setIncrementalStatus("retrying");
       }
+      return false;
     } finally {
-      setLoading(false);
+      if (!signal?.aborted && requestGenerationRef.current === generation) {
+        setLoading(false);
+      }
     }
   }, [assetId, interval]);
 
-  const loadIncremental = useCallback(async () => {
-    if (incrementalInFlightRef.current) return;
-    incrementalInFlightRef.current = true;
+  const loadIncremental = useCallback(async (generation: number) => {
+    if (requestGenerationRef.current !== generation) return;
+    if (incrementalInFlightRef.current === generation) return;
+    incrementalInFlightRef.current = generation;
     try {
       const result = await getCandles(assetId, interval, 2);
+      if (requestGenerationRef.current !== generation) return;
       setSeries((current) => {
-        if (!current || current.asset_id !== assetId || current.interval !== interval) return result;
-        if (current.symbol !== result.symbol || current.provider !== result.provider) return result;
+        // An incremental response is never a valid replacement for the complete
+        // series. This also prevents a late response from an old timeframe from
+        // collapsing the next chart to only two candles.
+        if (requestGenerationRef.current !== generation) return current;
+        if (!current || current.asset_id !== assetId || current.interval !== interval) return current;
+        if (result.asset_id !== assetId || result.interval !== interval) return current;
+        if (current.symbol !== result.symbol || current.provider !== result.provider) return current;
         const byTime = new Map(current.candles.map((candle) => [candle.time, candle]));
         result.candles.forEach((candle) => byTime.set(candle.time, candle));
         const candles = [...byTime.values()].sort((left, right) => left.time - right.time).slice(-300);
         return { ...current, ...result, candles };
       });
-      setIncrementalStatus("live");
+      if (requestGenerationRef.current === generation) setIncrementalStatus("live");
     } catch {
       // Keep the last good chart visible while the incremental updater reconnects.
-      setIncrementalStatus("retrying");
+      if (requestGenerationRef.current === generation) setIncrementalStatus("retrying");
     } finally {
-      incrementalInFlightRef.current = false;
+      if (incrementalInFlightRef.current === generation) {
+        incrementalInFlightRef.current = null;
+      }
     }
   }, [assetId, interval]);
 
   useEffect(() => {
+    const generation = requestGenerationRef.current + 1;
+    requestGenerationRef.current = generation;
+    incrementalInFlightRef.current = null;
     const controller = new AbortController();
     let timer: number | undefined;
     setLoading(true);
@@ -235,18 +259,20 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
     setInspectedCandle(null);
     setIncrementalStatus("connecting");
     renderedKeyRef.current = "";
+    renderedFirstTimeRef.current = 0;
     renderedLastTimeRef.current = 0;
-    void loadInitial(controller.signal).then(() => {
-      if (!controller.signal.aborted) {
+    renderedCountRef.current = 0;
+    void loadInitial(generation, controller.signal).then((loaded) => {
+      if (loaded && !controller.signal.aborted && requestGenerationRef.current === generation) {
         const refreshMilliseconds = assetId === "gold" ? 20_000 : 2_000;
-        timer = window.setInterval(() => void loadIncremental(), refreshMilliseconds);
+        timer = window.setInterval(() => void loadIncremental(generation), refreshMilliseconds);
       }
     });
     return () => {
       controller.abort();
       if (timer !== undefined) window.clearInterval(timer);
     };
-  }, [loadIncremental, loadInitial]);
+  }, [assetId, loadIncremental, loadInitial, reloadNonce]);
 
   useEffect(() => {
     candleLookupRef.current = new Map((series?.candles ?? []).map((candle) => [candle.time, candle]));
@@ -414,13 +440,18 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
     );
     const rsi = rsiData(series.candles, parameters.rsiPeriod);
     const parameterKey = JSON.stringify(parameters);
-    const renderKey = `${assetId}:${interval}:${series.symbol}:${series.provider}:${subIndicator}:${parameterKey}`;
+    const renderKey = `${series.asset_id}:${series.interval}:${series.symbol}:${series.provider}:${subIndicator}:${parameterKey}`;
+    const previousFirstTime = renderedFirstTimeRef.current;
     const previousLastTime = renderedLastTimeRef.current;
+    const previousCount = renderedCountRef.current;
+    const currentFirstTime = series.candles[0]?.time ?? 0;
     const currentLastTime = series.candles.at(-1)?.time ?? 0;
     const fullRender = (
       renderedKeyRef.current !== renderKey
       || previousLastTime === 0
       || currentLastTime < previousLastTime
+      || currentFirstTime < previousFirstTime
+      || series.candles.length > previousCount + 2
     );
 
     if (fullRender) {
@@ -457,7 +488,9 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
       updateHistogram(indicators.macdHistogram, macd.histogram);
       updateLine(indicators.rsi, rsi);
     }
+    renderedFirstTimeRef.current = currentFirstTime;
     renderedLastTimeRef.current = currentLastTime;
+    renderedCountRef.current = series.candles.length;
     chart.timeScale().applyOptions({ timeVisible: !["1d", "1w"].includes(interval) });
 
     const fittedKey = `${assetId}:${interval}:${series.symbol}:${series.provider}:${subIndicator}`;
@@ -594,7 +627,7 @@ export function CandlestickChart({ assetId, symbol }: CandlestickChartProps) {
         {error ? (
           <div className="chart-state chart-state-error">
             <span>{error}</span>
-            <button type="button" onClick={() => { setLoading(true); void loadInitial(); }}>重试</button>
+            <button type="button" onClick={() => setReloadNonce((value) => value + 1)}>重试</button>
           </div>
         ) : null}
       </div>

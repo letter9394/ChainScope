@@ -433,10 +433,16 @@ class CoinGeckoClient:
                     f"Massive payload {provider_status}: {provider_message[:160]}"
                 )
             candles = parse_massive_candles(payload)
-            if len(candles) < 2:
+            # A successful HTTP response can still contain only a handful of
+            # points for an unsupported or thin aggregate window. Incremental
+            # requests legitimately ask for two points, while a full chart
+            # needs enough history for its indicators and visible range.
+            minimum_candles = min(limit, 60)
+            if len(candles) < minimum_candles:
                 results_count = payload.get("resultsCount", len(candles))
                 raise MarketDataError(
-                    f"Massive returned only {results_count} XAU/USD candle(s) for this range"
+                    f"Massive returned only {results_count} XAU/USD candle(s); "
+                    f"at least {minimum_candles} are required"
                 )
             candles = candles[-limit:]
         except MarketDataError:
