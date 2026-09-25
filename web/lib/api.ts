@@ -3,6 +3,7 @@ import type {
   AlertEvent,
   AlertRule,
   AlertRuleInput,
+  AuthMessageResult,
   AuthUser,
   CandleInterval,
   CandleSeries,
@@ -217,6 +218,18 @@ export const confirmPasswordReset = (token: string, password: string) =>
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token, password }),
+  });
+
+export const confirmEmailVerification = (token: string) =>
+  apiRequest<AuthUser>("/api/auth/email-verification/confirm", undefined, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+
+export const resendEmailVerification = () =>
+  apiRequest<AuthMessageResult>("/api/auth/email-verification/resend", undefined, {
+    method: "POST",
   });
 
 export async function logoutUser(): Promise<void> {

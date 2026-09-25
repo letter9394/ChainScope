@@ -1,5 +1,7 @@
 from email.message import EmailMessage
 from pathlib import Path
+import re
+from urllib.parse import unquote
 
 import pytest
 from fastapi.testclient import TestClient
@@ -98,15 +100,29 @@ def test_logged_in_user_can_enable_and_test_email(tmp_path: Path, monkeypatch) -
     settings.background_alerts_enabled = False
     app.dependency_overrides[get_database] = lambda: database
     app.dependency_overrides[get_settings] = lambda: settings
-    monkeypatch.setattr(NotificationService, "_send_message_sync", lambda self, message: None)
+    sent_messages = []
+    monkeypatch.setattr(
+        NotificationService,
+        "_send_message_sync",
+        lambda self, message: sent_messages.append(message),
+    )
     monkeypatch.setattr("app.main.monotonic", lambda: 10.0)
     _last_test_email_sent.clear()
     client = TestClient(app)
     try:
-        client.post(
+        registered = client.post(
             "/api/auth/register",
             json={"email": "recipient@163.com", "password": "safe-password-4"},
         )
+        assert registered.status_code == 201
+        verification_body = sent_messages[0].get_body(preferencelist=("plain",)).get_content()
+        match = re.search(r"verify_email_token=([^\s#]+)#account", verification_body)
+        assert match is not None
+        verified = client.post(
+            "/api/auth/email-verification/confirm",
+            json={"token": unquote(match.group(1))},
+        )
+        assert verified.status_code == 200
         enabled = client.put("/api/notifications/settings", json={"email_enabled": True})
         sent = client.post("/api/notifications/test-email")
         throttled = client.post("/api/notifications/test-email")

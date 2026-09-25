@@ -63,6 +63,9 @@ main { width: min(1220px, calc(100% - 40px)); margin: 0 auto; }
 .account-copy h2 { margin: 0; font-size: clamp(23px, 3vw, 34px); letter-spacing: -.035em; overflow-wrap: anywhere; }
 .account-copy > p:not(.kicker) { max-width: 590px; color: var(--muted); font-size: 12px; line-height: 1.7; margin: 12px 0 0; }
 .account-copy .secondary-button { margin-top: 18px; }
+.email-verification-status { display: inline-flex; margin-top: 12px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; font-size: 9px; font-weight: 800; letter-spacing: .04em; }
+.email-verification-status.verified { color: var(--accent); border-color: rgba(101,230,190,.28); background: rgba(101,230,190,.06); }
+.email-verification-status.pending { color: #ffcc74; border-color: rgba(255,204,116,.3); background: rgba(255,204,116,.07); }
 .auth-form, .notification-form { display: grid; gap: 12px; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,.018); }
 .auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 4px; border-radius: 12px; background: rgba(255,255,255,.035); }
 .auth-tabs button { border: 0; border-radius: 9px; color: var(--muted); background: transparent; padding: 8px; cursor: pointer; }

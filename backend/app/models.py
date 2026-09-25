@@ -223,6 +223,15 @@ class AuthUser(BaseModel):
     id: int
     email: str
     created_at: str
+    email_verified: bool
+
+
+class EmailVerificationConfirm(BaseModel):
+    token: str = Field(min_length=20, max_length=2048)
+
+
+class AuthMessageResponse(BaseModel):
+    message: str
 
 
 class PasswordResetRequest(BaseModel):

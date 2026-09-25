@@ -24,6 +24,16 @@ class UserRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class EmailVerificationRow(Base):
+    __tablename__ = "email_verifications"
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class WatchlistRow(Base):
     __tablename__ = "user_watchlist"
     __table_args__ = (UniqueConstraint("user_id", "coin_id", name="uq_watchlist_user_coin"),)

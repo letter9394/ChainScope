@@ -195,9 +195,14 @@ export interface AuthUser {
   id: number;
   email: string;
   created_at: string;
+  email_verified: boolean;
 }
 
 export interface PasswordResetRequestResult {
+  message: string;
+}
+
+export interface AuthMessageResult {
   message: string;
 }
 

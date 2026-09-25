@@ -38,6 +38,15 @@ class Settings(BaseSettings):
     session_cookie_name: str = "chainscope_session"
     session_max_age_seconds: int = 60 * 60 * 24 * 30
     password_reset_max_age_seconds: int = 30 * 60
+    email_verification_max_age_seconds: int = 60 * 60 * 24
+    auth_register_limit: int = 5
+    auth_register_window_seconds: int = 10 * 60
+    auth_login_limit: int = 10
+    auth_login_window_seconds: int = 5 * 60
+    auth_password_reset_limit: int = 3
+    auth_password_reset_window_seconds: int = 60 * 60
+    auth_verification_resend_limit: int = 3
+    auth_verification_resend_window_seconds: int = 60 * 60
     alert_check_seconds: int = 60
     background_alerts_enabled: bool = True
     public_app_url: str = "http://localhost:3100"

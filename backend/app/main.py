@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import os
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
@@ -15,7 +16,8 @@ from app.config import Settings, get_settings
 from app.database import Database, UserRow
 from app.models import (
     AlertEvaluationResponse, AlertEvent, AlertRule, AlertRuleCreate, AuthCredentials,
-    AuthUser, CandleSeries, DerivativesSnapshot, HealthResponse, HistoryPoint, MarketCoin,
+    AuthMessageResponse, AuthUser, CandleSeries, DerivativesSnapshot,
+    EmailVerificationConfirm, HealthResponse, HistoryPoint, MarketCoin,
     NewsResponse, NewsTranslationRequest, NewsTranslationResponse,
     NotificationSettingsResponse, NotificationSettingsUpdate, NotificationTestResponse,
     PasswordResetConfirm, PasswordResetRequest, PasswordResetRequestResponse, RiskAssessment,
@@ -23,8 +25,9 @@ from app.models import (
 )
 from app.services.alerts import AlertRepository, evaluate_alert_rules
 from app.services.auth import (
-    UserRepository, create_password_reset_token, create_session_token,
-    decode_password_reset_token, decode_session_token, user_model, verify_password,
+    UserRepository, create_email_verification_token, create_password_reset_token,
+    create_session_token, decode_email_verification_token, decode_password_reset_token,
+    decode_session_token, user_model, verify_password,
 )
 from app.services.derivatives import get_derivatives_snapshot
 from app.services.market import CoinGeckoClient, MarketDataError, SUPPORTED_COINS
@@ -34,12 +37,13 @@ from app.services.notifications import (
     email_provider, preference_response,
 )
 from app.services.risk import assess_risk, backtest_risk
+from app.services.rate_limit import InMemoryRateLimiter
 from app.services.scheduler import run_alert_scheduler
 from app.services.watchlist import WatchlistRepository
 
 
 _last_test_email_sent: dict[int, float] = {}
-_last_password_reset_requested: dict[str, float] = {}
+_auth_rate_limiter = InMemoryRateLimiter()
 
 
 @lru_cache
@@ -112,6 +116,59 @@ def get_alert_repository(
     return AlertRepository(database, user.id)
 
 
+def _client_address(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "").split(",", 1)[0].strip()
+    return forwarded[:80] if forwarded else (request.client.host if request.client else "unknown")
+
+
+def _enforce_auth_rate_limit(
+    request: Request,
+    *,
+    action: str,
+    account: str,
+    limit: int,
+    window_seconds: int,
+) -> None:
+    account_fingerprint = hashlib.sha256(
+        account.strip().lower().encode("utf-8")
+    ).hexdigest()[:24]
+    keys = (
+        f"auth:{action}:account:{account_fingerprint}",
+        f"auth:{action}:ip:{_client_address(request)}",
+    )
+    for key in keys:
+        decision = _auth_rate_limiter.check(
+            key,
+            limit=limit,
+            window_seconds=window_seconds,
+        )
+        if not decision.allowed:
+            raise HTTPException(
+                status_code=429,
+                detail=f"请求过于频繁，请在 {decision.retry_after_seconds} 秒后重试",
+                headers={"Retry-After": str(decision.retry_after_seconds)},
+            )
+
+
+async def _send_email_verification(
+    user: UserRow,
+    database: Database,
+    settings: Settings,
+) -> None:
+    token = create_email_verification_token(
+        user,
+        settings.session_secret,
+        settings.email_verification_max_age_seconds,
+    )
+    verification_url = (
+        f"{settings.public_app_url.rstrip('/')}/?verify_email_token={quote(token)}#account"
+    )
+    await NotificationService(database, settings).send_email_verification(
+        user.email,
+        verification_url,
+    )
+
+
 @app.get("/api/health", response_model=HealthResponse, tags=["system"])
 async def health(settings: Settings = Depends(get_settings)) -> HealthResponse:
     return HealthResponse(
@@ -140,11 +197,19 @@ async def asset_candles(
 
 @app.post("/api/auth/register", response_model=AuthUser, status_code=201, tags=["auth"])
 async def register(
+    request: Request,
     payload: AuthCredentials,
     response: Response,
     settings: Settings = Depends(get_settings),
     database: Database = Depends(get_database),
 ) -> AuthUser:
+    _enforce_auth_rate_limit(
+        request,
+        action="register",
+        account=payload.email,
+        limit=settings.auth_register_limit,
+        window_seconds=settings.auth_register_window_seconds,
+    )
     repository = UserRepository(database)
     if repository.get_by_email(payload.email):
         raise HTTPException(status_code=409, detail="该邮箱已注册")
@@ -153,21 +218,36 @@ async def register(
     except IntegrityError as exc:
         raise HTTPException(status_code=409, detail="该邮箱已注册") from exc
     _set_session_cookie(response, user.id, settings)
-    return user_model(user)
+    if email_is_configured(settings):
+        try:
+            await _send_email_verification(user, database, settings)
+        except Exception:
+            # Registration remains usable; the signed-in user can retry from the account panel.
+            pass
+    return user_model(user, email_verified=False)
 
 
 @app.post("/api/auth/login", response_model=AuthUser, tags=["auth"])
 async def login(
+    request: Request,
     payload: AuthCredentials,
     response: Response,
     settings: Settings = Depends(get_settings),
     database: Database = Depends(get_database),
 ) -> AuthUser:
-    user = UserRepository(database).get_by_email(payload.email)
+    _enforce_auth_rate_limit(
+        request,
+        action="login",
+        account=payload.email,
+        limit=settings.auth_login_limit,
+        window_seconds=settings.auth_login_window_seconds,
+    )
+    repository = UserRepository(database)
+    user = repository.get_by_email(payload.email)
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="邮箱或密码错误")
     _set_session_cookie(response, user.id, settings)
-    return user_model(user)
+    return user_model(user, email_verified=repository.is_email_verified(user.id))
 
 
 @app.post(
@@ -176,16 +256,19 @@ async def login(
     tags=["auth"],
 )
 async def request_password_reset(
+    request: Request,
     payload: PasswordResetRequest,
     settings: Settings = Depends(get_settings),
     database: Database = Depends(get_database),
 ) -> PasswordResetRequestResponse:
     generic_message = "如果该邮箱已注册，重置邮件将在几分钟内送达。"
-    now = monotonic()
-    last_requested = _last_password_reset_requested.get(payload.email)
-    if last_requested is not None and now - last_requested < 60:
-        return PasswordResetRequestResponse(message=generic_message)
-    _last_password_reset_requested[payload.email] = now
+    _enforce_auth_rate_limit(
+        request,
+        action="password-reset",
+        account=payload.email,
+        limit=settings.auth_password_reset_limit,
+        window_seconds=settings.auth_password_reset_window_seconds,
+    )
 
     user = UserRepository(database).get_by_email(payload.email)
     if user is None:
@@ -204,11 +287,19 @@ async def request_password_reset(
 
 @app.post("/api/auth/password-reset/confirm", response_model=AuthUser, tags=["auth"])
 async def confirm_password_reset(
+    request: Request,
     payload: PasswordResetConfirm,
     response: Response,
     settings: Settings = Depends(get_settings),
     database: Database = Depends(get_database),
 ) -> AuthUser:
+    _enforce_auth_rate_limit(
+        request,
+        action="password-reset-confirm",
+        account=payload.token[-32:],
+        limit=settings.auth_login_limit,
+        window_seconds=settings.auth_login_window_seconds,
+    )
     decoded = decode_password_reset_token(payload.token, settings.session_secret)
     if decoded is None:
         raise HTTPException(status_code=400, detail="重置链接无效或已过期，请重新申请")
@@ -217,7 +308,68 @@ async def confirm_password_reset(
     if user is None:
         raise HTTPException(status_code=400, detail="重置链接已使用或已失效，请重新申请")
     _set_session_cookie(response, user.id, settings)
-    return user_model(user)
+    repository = UserRepository(database)
+    return user_model(user, email_verified=repository.is_email_verified(user.id))
+
+
+@app.post(
+    "/api/auth/email-verification/confirm",
+    response_model=AuthUser,
+    tags=["auth"],
+)
+async def confirm_email_verification(
+    request: Request,
+    payload: EmailVerificationConfirm,
+    response: Response,
+    settings: Settings = Depends(get_settings),
+    database: Database = Depends(get_database),
+) -> AuthUser:
+    _enforce_auth_rate_limit(
+        request,
+        action="email-verification-confirm",
+        account=payload.token[-32:],
+        limit=settings.auth_login_limit,
+        window_seconds=settings.auth_login_window_seconds,
+    )
+    decoded = decode_email_verification_token(payload.token, settings.session_secret)
+    if decoded is None:
+        raise HTTPException(status_code=400, detail="验证链接无效或已过期，请重新发送")
+    user_id, email_fingerprint = decoded
+    user = UserRepository(database).verify_email(user_id, email_fingerprint)
+    if user is None:
+        raise HTTPException(status_code=400, detail="验证链接无效或账号已变更")
+    _set_session_cookie(response, user.id, settings)
+    return user_model(user, email_verified=True)
+
+
+@app.post(
+    "/api/auth/email-verification/resend",
+    response_model=AuthMessageResponse,
+    tags=["auth"],
+)
+async def resend_email_verification(
+    request: Request,
+    user: UserRow = Depends(get_current_user),
+    settings: Settings = Depends(get_settings),
+    database: Database = Depends(get_database),
+) -> AuthMessageResponse:
+    repository = UserRepository(database)
+    if repository.is_email_verified(user.id):
+        return AuthMessageResponse(message="邮箱已经验证，无需重复发送。")
+    _enforce_auth_rate_limit(
+        request,
+        action="email-verification-resend",
+        account=user.email,
+        limit=settings.auth_verification_resend_limit,
+        window_seconds=settings.auth_verification_resend_window_seconds,
+    )
+    if not email_is_configured(settings):
+        raise HTTPException(status_code=503, detail="邮件服务尚未配置完成，请稍后再试")
+    try:
+        await _send_email_verification(user, database, settings)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"验证邮件发送失败：{str(exc)[:240]}") from exc
+    return AuthMessageResponse(message="验证邮件已发送，请检查收件箱和垃圾邮件文件夹。")
 
 
 def _set_session_cookie(response: Response, user_id: int, settings: Settings) -> None:
@@ -238,8 +390,12 @@ async def logout(response: Response, settings: Settings = Depends(get_settings))
 
 
 @app.get("/api/auth/me", response_model=AuthUser, tags=["auth"])
-async def current_user(user: UserRow = Depends(get_current_user)) -> AuthUser:
-    return user_model(user)
+async def current_user(
+    user: UserRow = Depends(get_current_user),
+    database: Database = Depends(get_database),
+) -> AuthUser:
+    repository = UserRepository(database)
+    return user_model(user, email_verified=repository.is_email_verified(user.id))
 
 
 @app.get("/api/markets", response_model=list[MarketCoin], tags=["market"])
@@ -452,6 +608,8 @@ async def update_notification_settings(
 ) -> NotificationSettingsResponse:
     if payload.email_enabled and not email_is_configured(settings):
         raise HTTPException(status_code=409, detail="管理员尚未完整配置邮件发送服务")
+    if payload.email_enabled and not UserRepository(database).is_email_verified(user.id):
+        raise HTTPException(status_code=403, detail="请先验证登录邮箱，再开启邮件通知")
     row = NotificationRepository(database, user.id).update(payload)
     return preference_response(row, settings)
 
@@ -464,6 +622,8 @@ async def send_test_email(
 ) -> NotificationTestResponse:
     if not email_is_configured(settings):
         raise HTTPException(status_code=409, detail="管理员尚未完整配置邮件发送服务")
+    if not UserRepository(database).is_email_verified(user.id):
+        raise HTTPException(status_code=403, detail="请先验证登录邮箱，再发送测试邮件")
     now = monotonic()
     last_sent = _last_test_email_sent.get(user.id)
     elapsed = now - last_sent if last_sent is not None else None

@@ -22,7 +22,8 @@ ChainScope 是一个面向学习与作品集展示的 Web3 智能市场分析与
 - 每项风险指标都有权重、数值和中文解释，便于追溯评分依据
 - 聚合 CoinDesk 新闻并提供来源链接、情绪标签和按需中英翻译
 - 支持 OpenAI 兼容接口；未配置密钥时自动使用规则分析并明确标注
-- 邮箱注册/登录使用 HttpOnly 签名 Cookie，密码只保存 scrypt 哈希；支持一次性邮件找回密码
+- 邮箱注册/登录使用 HttpOnly 签名 Cookie，密码只保存 scrypt 哈希；新账号需完成 24 小时有效的邮箱验证后才能开启邮件预警
+- 登录、注册、找回密码和验证邮件重发均有 IP＋账号双维度滑动窗口限流，并返回标准 `429` / `Retry-After`
 - PostgreSQL 按用户隔离自选、预警规则、事件与通知设置；本地开发可退回 SQLite
 - 自定义“风险分”或“24 小时涨跌幅”阈值，服务器在线时每 60 秒后台检查
 - 仅在安全状态首次越线时生成事件，避免重复通知；支持确认和历史追溯
@@ -175,6 +176,8 @@ pnpm build
 | GET | `/api/news` | 新闻与情绪分析 |
 | POST | `/api/news/translate` | 将一条英文新闻按需翻译为中文 |
 | POST | `/api/auth/register`、`/api/auth/login`、`/api/auth/logout` | 用户注册、登录、退出 |
+| POST | `/api/auth/email-verification/confirm`、`/api/auth/email-verification/resend` | 确认或重发邮箱验证 |
+| POST | `/api/auth/password-reset/request`、`/api/auth/password-reset/confirm` | 申请并完成一次性密码重置 |
 | GET | `/api/auth/me` | 获取当前登录账号 |
 | GET / POST / DELETE | `/api/watchlist` | 查询、添加和删除自选资产 |
 | GET / POST / DELETE | `/api/alerts/rules` | 查询、创建和删除阈值规则 |
@@ -210,7 +213,8 @@ ChainScope/
 - 邮件需要部署者提供 SMTP 邮箱授权码，未配置时仍可使用站内通知
 - 免费数据不提供可靠的历史全市场爆仓回补；实时强平仅从页面建立 WebSocket 后累计
 - 链上大额转账和交易所净流入需要可靠的链上索引服务/API Key，当前不使用伪造数据代替
-- 可进一步加入邮箱所有权预验证、持久化限流、链上数据供应商和多市场走样检验
+- 当前认证限流保存在单个 Web 进程内；多实例部署应改用 Redis 等共享存储实现全局限流
+- 可进一步加入 CSRF 防护审计、链上数据供应商和多市场走样检验
 
 ## License
 

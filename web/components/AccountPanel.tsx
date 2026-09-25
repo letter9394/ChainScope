@@ -11,10 +11,12 @@ interface AccountPanelProps {
   settings: NotificationSettings | null;
   busy: boolean;
   passwordResetToken: string | null;
+  emailVerificationMessage: string | null;
   onAuthenticate: (mode: "login" | "register", email: string, password: string) => Promise<void>;
   onRequestPasswordReset: (email: string) => Promise<string>;
   onConfirmPasswordReset: (token: string, password: string) => Promise<void>;
   onClearPasswordResetToken: () => void;
+  onResendEmailVerification: () => Promise<string>;
   onLogout: () => Promise<void>;
   onSaveSettings: (settings: Pick<NotificationSettings, "email_enabled">) => Promise<void>;
   onSendTestEmail: () => Promise<string>;
@@ -25,10 +27,12 @@ export function AccountPanel({
   settings,
   busy,
   passwordResetToken,
+  emailVerificationMessage,
   onAuthenticate,
   onRequestPasswordReset,
   onConfirmPasswordReset,
   onClearPasswordResetToken,
+  onResendEmailVerification,
   onLogout,
   onSaveSettings,
   onSendTestEmail,
@@ -40,6 +44,10 @@ export function AccountPanel({
   const [emailEnabled, setEmailEnabled] = useState(false);
   const [testMessage, setTestMessage] = useState<string | null>(null);
   const [accountMessage, setAccountMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (emailVerificationMessage) setAccountMessage(emailVerificationMessage);
+  }, [emailVerificationMessage]);
 
   useEffect(() => {
     if (passwordResetToken) setMode("reset");
@@ -56,6 +64,15 @@ export function AccountPanel({
       setTestMessage(await onSendTestEmail());
     } catch {
       setTestMessage("发送失败，请查看页面错误提示后重试。");
+    }
+  };
+
+  const resendVerification = async () => {
+    setAccountMessage(null);
+    try {
+      setAccountMessage(await onResendEmailVerification());
+    } catch (reason) {
+      setAccountMessage(reason instanceof Error ? reason.message : "验证邮件发送失败");
     }
   };
 
@@ -145,21 +162,33 @@ export function AccountPanel({
       <div className="account-copy">
         <p className="kicker">SIGNED IN</p>
         <h2>{user.email}</h2>
+        <div className={`email-verification-status ${user.email_verified ? "verified" : "pending"}`}>
+          {user.email_verified ? "✓ 邮箱已验证" : "! 邮箱等待验证"}
+        </div>
         <p>站内预警已启用；服务器在线时会每 {settings?.schedule_seconds ?? 60} 秒在后台检查，不需要一直打开网页。</p>
+        {!user.email_verified ? (
+          <>
+            <p>请打开验证邮件完成确认；验证前不能开启邮件通知。</p>
+            <button className="secondary-button" type="button" onClick={() => void resendVerification()} disabled={busy}>
+              {busy ? "发送中…" : "重新发送验证邮件"}
+            </button>
+          </>
+        ) : null}
         <button className="secondary-button" type="button" onClick={() => void onLogout()} disabled={busy}>退出登录</button>
+        {accountMessage ? <p className="email-test-result" role="status">{accountMessage}</p> : null}
       </div>
       <form className="notification-form" onSubmit={(event) => {
         event.preventDefault();
         void onSaveSettings({ email_enabled: emailEnabled });
       }}>
         <div><strong>通知通道</strong><span>站内通知始终开启</span></div>
-        <label className={!settings?.email_available ? "unavailable" : ""}>
-          <input type="checkbox" checked={emailEnabled} disabled={!settings?.email_available} onChange={(event) => setEmailEnabled(event.target.checked)} /> 邮件通知
-          <small>{settings?.email_available ? `通过${settings.email_provider}发送到当前登录邮箱` : "等待部署者完成 SMTP 配置"}</small>
+        <label className={!settings?.email_available || !user.email_verified ? "unavailable" : ""}>
+          <input type="checkbox" checked={emailEnabled} disabled={!settings?.email_available || !user.email_verified} onChange={(event) => setEmailEnabled(event.target.checked)} /> 邮件通知
+          <small>{!user.email_verified ? "完成邮箱验证后可开启" : settings?.email_available ? `通过${settings.email_provider}发送到当前登录邮箱` : "等待部署者完成 SMTP 配置"}</small>
         </label>
         {settings?.email_sender ? <p className="email-provider-note">发件地址：{settings.email_sender}</p> : null}
         <button className="primary-button" type="submit" disabled={busy || !settings}>{busy ? "保存中…" : "保存通知设置"}</button>
-        <button className="secondary-button" type="button" disabled={busy || !settings?.email_available} onClick={() => void testEmail()}>
+        <button className="secondary-button" type="button" disabled={busy || !settings?.email_available || !user.email_verified} onClick={() => void testEmail()}>
           {busy ? "发送中…" : "发送测试邮件"}
         </button>
         {testMessage ? <p className="email-test-result" role="status">{testMessage}</p> : null}

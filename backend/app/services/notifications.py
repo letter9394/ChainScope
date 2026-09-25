@@ -10,7 +10,10 @@ import httpx
 from sqlalchemy import select
 
 from app.config import Settings
-from app.database import Database, NotificationDeliveryRow, NotificationPreferenceRow, UserRow
+from app.database import (
+    Database, EmailVerificationRow, NotificationDeliveryRow,
+    NotificationPreferenceRow, UserRow,
+)
 from app.models import AlertEvent, NotificationSettingsResponse, NotificationSettingsUpdate
 
 
@@ -120,7 +123,10 @@ class NotificationService:
         with self.database.session() as session:
             preference = session.get(NotificationPreferenceRow, user_id)
             user = session.get(UserRow, user_id)
+            verification = session.get(EmailVerificationRow, user_id)
         if preference is None or user is None or not preference.email_enabled:
+            return
+        if verification is not None and verification.verified_at is None:
             return
 
         for event in events:
@@ -215,6 +221,29 @@ class NotificationService:
                 f"href='{safe_url}'>设置新密码</a></p>"
                 "<p>如果不是你本人操作，请忽略这封邮件，原密码不会改变。</p>"
                 "<p style='color:#667b74;font-size:12px'>链接使用一次后自动失效。</p>"
+            ),
+        )
+        await asyncio.to_thread(self._send_message_sync, message)
+
+    async def send_email_verification(self, recipient: str, verification_url: str) -> None:
+        self._require_configuration()
+        safe_url = html.escape(verification_url, quote=True)
+        message = self._base_message(
+            recipient=recipient,
+            subject="[ChainScope] 验证你的邮箱",
+            plain=(
+                "欢迎注册 ChainScope。\n\n"
+                f"请在 24 小时内打开以下链接完成邮箱验证：\n{verification_url}\n\n"
+                "完成验证后即可开启邮件风险预警。如果不是你本人注册，请忽略本邮件。"
+            ),
+            html_body=(
+                "<h2 style='margin:0 0 16px;color:#153c32'>验证你的 ChainScope 邮箱</h2>"
+                "<p>点击下面的按钮完成验证，之后即可开启邮件风险预警：</p>"
+                "<p><a style='display:inline-block;padding:12px 20px;background:#36cfa5;"
+                "color:#08251d;text-decoration:none;border-radius:24px;font-weight:700' "
+                f"href='{safe_url}'>验证邮箱</a></p>"
+                "<p>链接在 24 小时后失效。如果不是你本人注册，请忽略本邮件。</p>"
+                "<p style='color:#667b74;font-size:12px'>ChainScope 不会通过邮件索取密码或 API Key。</p>"
             ),
         )
         await asyncio.to_thread(self._send_message_sync, message)

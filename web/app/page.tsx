@@ -15,6 +15,7 @@ import { useLiquidationStream } from "@/hooks/useLiquidationStream";
 import {
   addToWatchlist,
   acknowledgeAlertEvent,
+  confirmEmailVerification,
   createAlertRule,
   confirmPasswordReset,
   deleteAlertRule,
@@ -31,6 +32,7 @@ import {
   loginUser,
   logoutUser,
   registerUser,
+  resendEmailVerification,
   requestPasswordReset,
   removeFromWatchlist,
   sendTestEmail,
@@ -71,6 +73,8 @@ export default function Home() {
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings | null>(null);
   const [accountBusy, setAccountBusy] = useState(false);
   const [passwordResetToken, setPasswordResetToken] = useState<string | null>(null);
+  const [emailVerificationToken, setEmailVerificationToken] = useState<string | null>(null);
+  const [emailVerificationMessage, setEmailVerificationMessage] = useState<string | null>(null);
   const [alertRules, setAlertRules] = useState<AlertRule[]>([]);
   const [alertEvents, setAlertEvents] = useState<AlertEvent[]>([]);
   const [alertsBusy, setAlertsBusy] = useState(false);
@@ -82,7 +86,9 @@ export default function Home() {
   const liquidationStats = useLiquidationStream(selectedId);
 
   useEffect(() => {
-    setPasswordResetToken(new URLSearchParams(window.location.search).get("reset_token"));
+    const query = new URLSearchParams(window.location.search);
+    setPasswordResetToken(query.get("reset_token"));
+    setEmailVerificationToken(query.get("verify_email_token"));
   }, []);
 
   const selectedCoin = useMemo(
@@ -130,6 +136,39 @@ export default function Home() {
     setAlertEvents(events);
     setNotificationSettings(settings);
   }, []);
+
+  useEffect(() => {
+    if (!emailVerificationToken) return;
+    let active = true;
+    setAccountBusy(true);
+    void confirmEmailVerification(emailVerificationToken)
+      .then(async (verifiedUser) => {
+        if (!active) return;
+        setUser(verifiedUser);
+        await loadPrivateData();
+        if (active) {
+          setEmailVerificationMessage("邮箱验证成功，邮件风险预警现在可以启用了。");
+          setError(null);
+        }
+      })
+      .catch((reason) => {
+        if (!active) return;
+        const message = reason instanceof Error ? reason.message : "邮箱验证失败";
+        setEmailVerificationMessage(message);
+        setError(message);
+      })
+      .finally(() => {
+        if (!active) return;
+        setAccountBusy(false);
+        setEmailVerificationToken(null);
+        const url = new URL(window.location.href);
+        url.searchParams.delete("verify_email_token");
+        window.history.replaceState({}, "", `${url.pathname}${url.search}#account`);
+      });
+    return () => {
+      active = false;
+    };
+  }, [emailVerificationToken, loadPrivateData]);
 
   const checkAlerts = useCallback(async () => {
     if (!user) return;
@@ -184,6 +223,11 @@ export default function Home() {
       const authenticated = mode === "login" ? await loginUser(email, password) : await registerUser(email, password);
       setUser(authenticated);
       await loadPrivateData();
+      setEmailVerificationMessage(
+        mode === "register" && !authenticated.email_verified
+          ? "账号已创建。验证邮件已经发送；若暂未收到，可以点击重新发送。"
+          : null,
+      );
       setError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "登录失败");
@@ -267,6 +311,22 @@ export default function Home() {
       return result.message;
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : "测试邮件发送失败";
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  const resendVerification = async () => {
+    setAccountBusy(true);
+    try {
+      const result = await resendEmailVerification();
+      setEmailVerificationMessage(result.message);
+      setError(null);
+      return result.message;
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : "验证邮件发送失败";
       setError(message);
       throw new Error(message);
     } finally {
@@ -431,10 +491,12 @@ export default function Home() {
         settings={notificationSettings}
         busy={accountBusy}
         passwordResetToken={passwordResetToken}
+        emailVerificationMessage={emailVerificationMessage}
         onAuthenticate={authenticate}
         onRequestPasswordReset={sendPasswordReset}
         onConfirmPasswordReset={resetPassword}
         onClearPasswordResetToken={clearPasswordResetToken}
+        onResendEmailVerification={resendVerification}
         onLogout={logout}
         onSaveSettings={saveNotificationSettings}
         onSendTestEmail={testEmailNotification}

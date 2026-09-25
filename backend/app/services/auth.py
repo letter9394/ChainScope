@@ -9,7 +9,7 @@ import time
 
 from sqlalchemy import select
 
-from app.database import Database, UserRow
+from app.database import Database, EmailVerificationRow, UserRow, utcnow
 from app.models import AuthUser
 
 
@@ -82,6 +82,40 @@ def decode_password_reset_token(token: str, secret: str) -> tuple[int, str] | No
         return None
 
 
+def create_email_verification_token(user: UserRow, secret: str, max_age_seconds: int) -> str:
+    email_fingerprint = hashlib.sha256(user.email.encode("utf-8")).hexdigest()[:24]
+    payload = json.dumps(
+        {
+            "sub": user.id,
+            "exp": int(time.time()) + max_age_seconds,
+            "purpose": "email_verification",
+            "email": email_fingerprint,
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+    encoded = _urlsafe_encode(payload)
+    signature = _urlsafe_encode(
+        hmac.new(secret.encode("utf-8"), encoded.encode("ascii"), hashlib.sha256).digest()
+    )
+    return f"{encoded}.{signature}"
+
+
+def decode_email_verification_token(token: str, secret: str) -> tuple[int, str] | None:
+    try:
+        encoded, supplied_signature = token.split(".", 1)
+        expected_signature = _urlsafe_encode(
+            hmac.new(secret.encode("utf-8"), encoded.encode("ascii"), hashlib.sha256).digest()
+        )
+        if not hmac.compare_digest(supplied_signature, expected_signature):
+            return None
+        payload = json.loads(_urlsafe_decode(encoded))
+        if payload.get("purpose") != "email_verification" or int(payload["exp"]) < int(time.time()):
+            return None
+        return int(payload["sub"]), str(payload["email"])
+    except (ValueError, KeyError, TypeError, json.JSONDecodeError):
+        return None
+
+
 def create_session_token(user_id: int, secret: str, max_age_seconds: int) -> str:
     payload = json.dumps(
         {"sub": user_id, "exp": int(time.time()) + max_age_seconds},
@@ -108,8 +142,13 @@ def decode_session_token(token: str, secret: str) -> int | None:
         return None
 
 
-def user_model(row: UserRow) -> AuthUser:
-    return AuthUser(id=row.id, email=row.email, created_at=row.created_at.isoformat())
+def user_model(row: UserRow, *, email_verified: bool = True) -> AuthUser:
+    return AuthUser(
+        id=row.id,
+        email=row.email,
+        created_at=row.created_at.isoformat(),
+        email_verified=email_verified,
+    )
 
 
 class UserRepository:
@@ -128,9 +167,32 @@ class UserRepository:
         row = UserRow(email=email.strip().lower(), password_hash=hash_password(password))
         with self.database.session() as session:
             session.add(row)
+            session.flush()
+            session.add(EmailVerificationRow(user_id=row.id))
             session.commit()
             session.refresh(row)
         return row
+
+    def is_email_verified(self, user_id: int) -> bool:
+        with self.database.session() as session:
+            verification = session.get(EmailVerificationRow, user_id)
+            # Accounts created before verification support have no row and stay verified.
+            return verification is None or verification.verified_at is not None
+
+    def verify_email(self, user_id: int, expected_email_fingerprint: str) -> UserRow | None:
+        with self.database.session() as session:
+            row = session.get(UserRow, user_id)
+            if row is None:
+                return None
+            actual_fingerprint = hashlib.sha256(row.email.encode("utf-8")).hexdigest()[:24]
+            if not hmac.compare_digest(actual_fingerprint, expected_email_fingerprint):
+                return None
+            verification = session.get(EmailVerificationRow, user_id)
+            if verification is not None and verification.verified_at is None:
+                verification.verified_at = utcnow()
+                session.commit()
+            session.refresh(row)
+            return row
 
     def reset_password(self, user_id: int, expected_fingerprint: str, password: str) -> UserRow | None:
         with self.database.session() as session:
