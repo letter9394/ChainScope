@@ -10,10 +10,10 @@ ChainScope 是一个面向学习与作品集展示的 Web3 智能市场分析与
 
 - BTC、ETH、SOL 使用 Binance WebSocket 约每秒推送，XAU 与后端快照每 15 秒校准
 - WebSocket 不可用时自动退回 15 秒轮询，不让行情区域失去数据
-- 点击任一资产即可切换站内 K 线，支持 1/5/15/30 分钟、1/4 小时、日线和周线
-- BTC、ETH、SOL K 线由 FastAPI 代理 Binance Spot；配置 Massive Key 后黄金使用真正的 XAU/USD 聚合 K 线，失败时自动降级到明确标注的 PAXG/USDT 代理
+- 点击任一资产即可切换 K 线，支持 1/5/15/30 分钟、1/4 小时、日线和周线
+- BTC、ETH、SOL 使用 FastAPI 转发的 Binance Spot 站内图；黄金默认使用 TradingView `OANDA:XAUUSD` 专业实时图，并可切换到站内备用图
 - 默认展示均线、成交量和独立 MACD 副图，可切换 BOLL、RSI，自定义各项指标参数，并支持十字光标历史 OHLC、全屏、拖动和缩放
-- 加密 K 线每 2 秒增量更新，免费 Massive 黄金历史线每 20 秒同步；短时断网保留最后有效画面并自动重试
+- 站内 K 线每 2 秒增量更新；黄金备用图可在 PAXG 实时代理与免费 Massive 延迟 XAU/USD 历史线之间切换
 - 根据波动率、最大回撤、成交量异常和短期动量计算 0–100 风险分
 - 使用 365 天历史数据回放 30 日滚动风险模型，展示高风险信号后未来 1/3/7 日的命中率、平均最大跌幅和最深跌幅
 - 接入 Binance Futures 资金费率、未平仓合约、多空比，并每 10 秒更新
@@ -35,10 +35,11 @@ ChainScope 是一个面向学习与作品集展示的 Web3 智能市场分析与
 
 ```text
 浏览器 / Next.js 仪表盘（3100）
- |       |                         |
- |   Binance WebSocket             | 约1秒加密行情
- |   Lightweight Charts            | 站内K线渲染
- v
+ ├─ Binance WebSocket：约 1 秒加密行情
+ ├─ TradingView OANDA:XAUUSD：黄金默认专业实时图
+ ├─ Lightweight Charts：站内加密 K 线与黄金备用图
+ └─ REST API
+     v
 FastAPI 服务（8000） ── Binance Spot K线代理 ── 后台预警调度器（60 秒）
  /        |          |       |       \
 CoinGecko Binance Futures Gold API CoinDesk PostgreSQL
@@ -49,10 +50,10 @@ CoinGecko Binance Futures Gold API CoinDesk PostgreSQL
 
 | 层级 | 技术 |
 | --- | --- |
-| 前端 | Next.js 15、React 19、TypeScript、TradingView Lightweight Charts |
+| 前端 | Next.js 15、React 19、TypeScript、TradingView Advanced Chart / Lightweight Charts |
 | 后端 | Python 3、FastAPI、Pydantic、HTTPX |
 | 数据 | Binance Spot/Futures REST 与 WebSocket、CoinGecko、Gold API、Alternative.me、CoinDesk RSS、PostgreSQL / SQLite |
-| 测试 | Pytest、FastAPI TestClient、TypeScript typecheck |
+| 测试 | Pytest、FastAPI TestClient、Playwright、TypeScript typecheck |
 | 工程化 | Docker Compose、GitHub Actions、PowerShell 启停脚本 |
 
 ## 风险评分如何计算
@@ -151,7 +152,7 @@ SMTP_FROM_EMAIL=
 SMTP_SECURITY=ssl
 ```
 
-Render 免费实例会封锁 SMTP 端口，应配置 `BREVO_API_KEY` 与已验证的 `BREVO_SENDER_EMAIL`，通过 HTTPS API 发信。SMTP 配置保留给本地开发或允许 SMTP 出站的付费主机；Brevo 配置完整时会优先使用。配置 `MASSIVE_API_KEY` 后，黄金图表使用 `C:XAUUSD`；免费 Currencies Basic 只能读取已完成的历史分钟线，因此默认 `MASSIVE_DATA_DELAY_DAYS=2`，并使用 20 秒缓存控制请求额度。付费实时方案可把延迟改为 `0`。不要把任何真实密钥提交到 GitHub。配置 AI 密钥后，新闻模块会调用兼容的 Chat Completions 接口；否则使用本地关键词规则。
+Render 免费实例会封锁 SMTP 端口，应配置 `BREVO_API_KEY` 与已验证的 `BREVO_SENDER_EMAIL`，通过 HTTPS API 发信。SMTP 配置保留给本地开发或允许 SMTP 出站的付费主机；Brevo 配置完整时会优先使用。黄金主图无需 Key，默认嵌入 TradingView `OANDA:XAUUSD`；`MASSIVE_API_KEY` 只用于站内备用图的精确历史模式。免费 Currencies Basic 只能读取已完成的历史分钟线，因此默认 `MASSIVE_DATA_DELAY_DAYS=2`，并使用 20 秒缓存控制请求额度。付费实时方案可把延迟改为 `0`。不要把任何真实密钥提交到 GitHub。配置 AI 密钥后，新闻模块会调用兼容的 Chat Completions 接口；否则使用本地关键词规则。
 
 ## 运行测试
 
@@ -160,6 +161,8 @@ Render 免费实例会封锁 SMTP 端口，应配置 `BREVO_API_KEY` 与已验�
 cd web
 pnpm typecheck
 pnpm build
+pnpm exec playwright install chromium
+pnpm test:e2e
 ```
 
 ## 主要 API
@@ -204,9 +207,10 @@ ChainScope/
 - 免费公共数据可能有延迟、限流或短暂不可用
 - 新闻情绪分析主要用于作品集演示，不能替代专业研究
 - 当前行情覆盖 BTC、ETH、SOL、XAU；XAU 暂不套用加密货币风险评分，也不参与阈值预警
-- 黄金卡片显示 Gold API 的 XAU/USD 现价；配置 `MASSIVE_API_KEY` 后 K 线使用 Massive `C:XAUUSD`，未配置、限流或服务异常时自动退回明确标注的 Binance PAXG/USDT 走势代理
-- Massive 免费 Currencies Basic 虽支持分钟聚合，但不是实时权限；当前默认展示延迟两天的真实 XAU/USD 历史 K 线，需要实时行情时应升级数据方案并把 `MASSIVE_DATA_DELAY_DAYS` 改为 `0`
-- K 线由后端代理 Binance 公共接口并在浏览器内渲染，减少终端网络直接访问外部图表服务的依赖；免费上游仍可能限流或短暂不可用
+- 黄金卡片显示 Gold API 的 XAU/USD 参考价；黄金主图默认使用 TradingView `OANDA:XAUUSD`，其价格口径可能与卡片数据源略有差异
+- 站内黄金备用图默认展示明确标注的 Binance PAXG/USDT 走势代理；配置 `MASSIVE_API_KEY` 后还可查看 Massive `C:XAUUSD` 精确历史模式
+- Massive 免费 Currencies Basic 不是实时权限，精确历史模式默认延迟两天；需要站内实时 XAU/USD 时应升级数据方案并把 `MASSIVE_DATA_DELAY_DAYS` 改为 `0`
+- BTC、ETH、SOL K 线由后端代理 Binance 公共接口并在浏览器内渲染；黄金默认 TradingView 图在部分网络环境中可能需要切换到站内备用图
 - 新闻翻译由机器生成并按需调用第三方服务，应以英文原文为准
 - 免费 Web Service 休眠期间后台预警不会运行；唤醒后自动恢复
 - 免费 PostgreSQL 有 30 天期限，正式环境需要付费实例或迁移到长期数据库

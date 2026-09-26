@@ -6,7 +6,8 @@
     "dev": "next dev --turbopack --port 3100",
     "build": "next build --turbopack",
     "start": "next start --port 3100",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "lightweight-charts": "5.2.1",
@@ -15,6 +16,7 @@
     "react-dom": "19.1.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.55.1",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

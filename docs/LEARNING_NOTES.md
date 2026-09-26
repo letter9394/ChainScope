@@ -16,9 +16,9 @@ The browser is responsible for interaction and visualization. FastAPI owns exter
 
 The browser opens one Binance combined WebSocket for BTCUSDT, ETHUSDT, and SOLUSDT ticker events. The stream normally updates the cards about once per second. A separate 15-second REST refresh keeps the XAU quote current and repairs the screen if a stream message is missed. If the WebSocket is blocked or disconnected, the UI explicitly changes to fallback mode and reconnects in the background. Alert evaluation remains on a 60-second schedule so live rendering does not multiply expensive risk calculations.
 
-## Why candlesticks are rendered in-app through a server proxy
+## Why crypto uses a server proxy while gold has two chart modes
 
-The browser renders candles with the open-source TradingView Lightweight Charts library, but it never requests market vendors directly. FastAPI validates the asset and interval, normalizes provider responses, and applies a cache plus last-known-good fallback. This same-origin path reduces client-side network restrictions, protects API keys, centralizes upstream error handling, and is easy to test. BTC, ETH, and SOL use their real Binance USDT markets. When a Massive API key is configured, gold uses the dedicated `C:XAUUSD` aggregate endpoint; missing credentials, rate limits, or provider failures fall back to PAXG/USDT as an explicitly labeled trend proxy. A longer XAU cache keeps the free provider below its request limit.
+BTC, ETH, and SOL render candles with the open-source TradingView Lightweight Charts library. FastAPI validates the asset and interval, normalizes Binance responses, and applies a cache plus last-known-good fallback. This same-origin path reduces client-side network restrictions and centralizes upstream error handling. Gold is different: the default mode embeds TradingView's professional chart for `OANDA:XAUUSD`, providing a reliable XAU/USD price scale and complete indicator toolbar. A user can switch to the in-app fallback when TradingView is inaccessible. The fallback uses PAXG/USDT as an explicitly labeled live trend proxy or Massive `C:XAUUSD` as delayed exact history when a key is configured. The separation is deliberate: unlike-looking prices from different providers are never presented as the same instrument.
 
 ## Why news translation is on demand
 
@@ -42,6 +42,6 @@ Each rule stores whether it is currently on the triggered side of the threshold.
 - Why should an alert trigger on a state transition instead of on every polling cycle?
 - Why combine WebSocket push data with a slower REST snapshot?
 - Why proxy candle data through the backend instead of calling Binance from every browser?
-- Why does exact XAU/USD use a protected server-side provider with a PAXG fallback?
+- Why does gold default to TradingView while retaining a server-proxied fallback?
 - Why should translation be lazy and cached?
 - How would Redis replace the in-memory cache in a multi-server deployment?

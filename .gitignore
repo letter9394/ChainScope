@@ -18,6 +18,8 @@ node_modules/
 out/
 *.tsbuildinfo
 pnpm-debug.log*
+playwright-report/
+test-results/
 
 # Local runtime files
 .local/
