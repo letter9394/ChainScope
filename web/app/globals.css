@@ -148,6 +148,19 @@ main { width: min(1220px, calc(100% - 40px)); margin: 0 auto; }
 .chart-dates { display: flex; justify-content: space-between; padding: 8px 4px 0; color: var(--muted); font-size: 10px; }
 .chart-loading, .chart-empty { display: grid; place-items: center; height: 360px; color: var(--muted); }
 .candlestick-shell { margin-top: 24px; }
+.gold-chart-shell { margin-top: 24px; }
+.gold-chart-mode { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; margin-bottom: 12px; border: 1px solid rgba(255,198,108,.24); border-radius: 12px; background: rgba(255,198,108,.055); }
+.gold-chart-mode > div:first-child { display: grid; gap: 3px; }
+.gold-chart-mode strong { color: var(--warning); font-size: 11px; }
+.gold-chart-mode span { color: var(--muted); font-size: 9px; }
+.gold-chart-mode-buttons { display: flex; flex-wrap: wrap; gap: 7px; }
+.gold-chart-mode button { color: var(--muted); border: 1px solid var(--line); background: transparent; border-radius: 999px; padding: 7px 11px; font-size: 10px; cursor: pointer; }
+.gold-chart-mode button:hover, .gold-chart-mode button.active { color: #07100e; border-color: var(--warning); background: var(--warning); }
+.tradingview-gold-shell { display: grid; gap: 12px; }
+.tradingview-chart { width: 100%; height: 650px; overflow: hidden; border: 1px solid rgba(101,230,190,.2); border-radius: 14px; background: #081411; }
+.tradingview-chart iframe { display: block; width: 100%; height: 100%; border: 0; }
+.tradingview-footer { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.tradingview-footer a { color: var(--accent); }
 .chart-toolbar { display: grid; gap: 10px; margin-bottom: 12px; }
 .gold-source-row { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; padding: 9px 10px; border: 1px solid rgba(255,198,108,.22); border-radius: 9px; background: rgba(255,198,108,.045); }
 .gold-source-row > span { color: var(--warning); font-size: 9px; letter-spacing: .12em; margin-right: 2px; }
@@ -402,6 +415,9 @@ footer strong { color: var(--text); font-size: 15px; }
   .chart-panel, .risk-panel { padding: 18px; }
   .chart-panel { min-height: 760px; }
   .native-chart, .native-chart-canvas { height: 560px; }
+  .tradingview-chart { height: 560px; }
+  .gold-chart-mode { align-items: flex-start; flex-direction: column; }
+  .tradingview-footer { align-items: flex-start; flex-direction: column; }
   .indicator-row .incremental-status { width: 100%; margin-left: 0; padding-top: 3px; }
   .indicator-parameters { grid-template-columns: repeat(3, minmax(72px, 1fr)); }
   .candlestick-shell:fullscreen { padding: 10px; }

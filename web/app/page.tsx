@@ -11,6 +11,7 @@ import { RiskPanel } from "@/components/RiskPanel";
 import { RiskBacktestPanel } from "@/components/RiskBacktestPanel";
 import { CandlestickChart } from "@/components/CandlestickChart";
 import { ChartErrorBoundary } from "@/components/ChartErrorBoundary";
+import { GoldChart } from "@/components/GoldChart";
 import { useLiveCryptoPrices } from "@/hooks/useLiveCryptoPrices";
 import { useLiquidationStream } from "@/hooks/useLiquidationStream";
 import {
@@ -571,11 +572,15 @@ export default function Home() {
             ) : null}
           </div>
           <ChartErrorBoundary resetKey={selectedId}>
-            <CandlestickChart
-              assetId={selectedId}
-              symbol={selectedCoin?.symbol ?? "Asset"}
-              onLatestQuoteChange={setChartQuote}
-            />
+            {selectedId === "gold" ? (
+              <GoldChart onLatestQuoteChange={setChartQuote} />
+            ) : (
+              <CandlestickChart
+                assetId={selectedId}
+                symbol={selectedCoin?.symbol ?? "Asset"}
+                onLatestQuoteChange={setChartQuote}
+              />
+            )}
           </ChartErrorBoundary>
         </div>
         <RiskPanel risk={risk} loading={loadingDetail} unavailable={selectedId === "gold"} />

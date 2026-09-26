@@ -66,15 +66,17 @@ interface IndicatorSeriesRefs {
   rsi: LineApi | null;
 }
 
+export interface LatestChartQuote {
+  assetId: string;
+  price: number;
+  displaySymbol: string;
+  isProxy: boolean;
+}
+
 interface CandlestickChartProps {
   assetId: string;
   symbol: string;
-  onLatestQuoteChange?: (quote: {
-    assetId: string;
-    price: number;
-    displaySymbol: string;
-    isProxy: boolean;
-  } | null) => void;
+  onLatestQuoteChange?: (quote: LatestChartQuote | null) => void;
 }
 
 const emptyIndicatorRefs = (): IndicatorSeriesRefs => ({
