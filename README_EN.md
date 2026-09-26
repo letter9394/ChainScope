@@ -21,6 +21,7 @@ ChainScope is a full-stack Web3 market intelligence and risk alert platform buil
 - Transition-based alert events with acknowledgement and history, without repeated notification spam
 - Brevo HTTPS API for free Render deployments, plus QQ Mail, NetEase Mail, and custom SMTP fallback with a self-test endpoint
 - Cache, retry, timeout, validation, tests, Docker, and CI configuration
+- Structured production logs with request IDs, status codes, and latency, plus health reporting for database latency, scheduler cycles, email configuration, uptime, and deployed version
 
 ## Quick start on Windows
 

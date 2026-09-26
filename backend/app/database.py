@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 
@@ -135,3 +135,9 @@ class Database:
 
     def session(self) -> Session:
         return self.session_factory()
+
+    def ping(self) -> None:
+        """Raise when the configured database cannot execute a minimal query."""
+
+        with self.engine.connect() as connection:
+            connection.execute(text("SELECT 1"))

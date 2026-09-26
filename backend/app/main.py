@@ -1,11 +1,14 @@
 import asyncio
 import hashlib
+import logging
 import os
+import re
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from functools import lru_cache
-from time import monotonic
+from time import monotonic, perf_counter
 from urllib.parse import quote
+from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,11 +20,15 @@ from app.database import Database, UserRow
 from app.models import (
     AlertEvaluationResponse, AlertEvent, AlertRule, AlertRuleCreate, AuthCredentials,
     AuthMessageResponse, AuthUser, CandleSeries, DerivativesSnapshot,
-    EmailVerificationConfirm, HealthResponse, HistoryPoint, MarketCoin,
+    EmailVerificationConfirm, HealthCheck, HealthResponse, HistoryPoint, MarketCoin,
     NewsResponse, NewsTranslationRequest, NewsTranslationResponse,
     NotificationSettingsResponse, NotificationSettingsUpdate, NotificationTestResponse,
     PasswordResetConfirm, PasswordResetRequest, PasswordResetRequestResponse, RiskAssessment,
     RiskBacktestResult, WatchlistItem,
+    SchedulerHealth,
+)
+from app.observability import (
+    PROCESS_STARTED_MONOTONIC, configure_logging, scheduler_runtime, utc_iso,
 )
 from app.services.alerts import AlertRepository, evaluate_alert_rules
 from app.services.auth import (
@@ -44,6 +51,9 @@ from app.services.watchlist import WatchlistRepository
 
 _last_test_email_sent: dict[int, float] = {}
 _auth_rate_limiter = InMemoryRateLimiter()
+request_logger = logging.getLogger("chainscope.http")
+service_logger = logging.getLogger("chainscope.service")
+_request_id_pattern = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
 
 @lru_cache
@@ -58,15 +68,29 @@ def get_database(settings: Settings = Depends(get_settings)) -> Database:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings = get_settings()
+    configure_logging(
+        level=settings.log_level,
+        json_logs=settings.log_json if settings.log_json is not None else settings.chain_scope_env == "production",
+    )
+    scheduler_runtime.reset()
     database = database_for_url(settings.resolved_database_url)
     scheduler_task = None
     if settings.background_alerts_enabled:
         scheduler_task = asyncio.create_task(run_alert_scheduler(database, settings))
+    service_logger.info(
+        "service_started",
+        extra={
+            "environment": settings.chain_scope_env,
+            "database": "postgresql" if settings.resolved_database_url.startswith("postgresql") else "sqlite",
+            "background_alerts": settings.background_alerts_enabled,
+        },
+    )
     yield
     if scheduler_task is not None:
         scheduler_task.cancel()
         with suppress(asyncio.CancelledError):
             await scheduler_task
+    service_logger.info("service_stopped")
 
 
 app = FastAPI(
@@ -83,6 +107,44 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def request_observability(request: Request, call_next):
+    supplied_request_id = request.headers.get("x-request-id", "")
+    request_id = (
+        supplied_request_id
+        if _request_id_pattern.fullmatch(supplied_request_id)
+        else uuid4().hex
+    )
+    started_at = perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        request_logger.error(
+            "http_request_failed",
+            extra={
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "duration_ms": round((perf_counter() - started_at) * 1000, 2),
+                "error_type": type(exc).__name__,
+            },
+        )
+        raise
+    response.headers["X-Request-ID"] = request_id
+    if request.url.path.startswith("/api/") or response.status_code >= 400:
+        request_logger.info(
+            "http_request_completed",
+            extra={
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": response.status_code,
+                "duration_ms": round((perf_counter() - started_at) * 1000, 2),
+            },
+        )
+    return response
 
 
 def get_market_client(settings: Settings = Depends(get_settings)) -> CoinGeckoClient:
@@ -170,13 +232,60 @@ async def _send_email_verification(
 
 
 @app.get("/api/health", response_model=HealthResponse, tags=["system"])
-async def health(settings: Settings = Depends(get_settings)) -> HealthResponse:
+async def health(
+    response: Response,
+    settings: Settings = Depends(get_settings),
+    database: Database = Depends(get_database),
+) -> HealthResponse:
+    database_started_at = perf_counter()
+    database_status = "ok"
+    database_detail = None
+    try:
+        await asyncio.to_thread(database.ping)
+    except Exception as exc:
+        database_status = "error"
+        database_detail = f"Database check failed ({type(exc).__name__})"
+        service_logger.error(
+            "health_database_check_failed",
+            extra={"error_type": type(exc).__name__},
+        )
+    database_check = HealthCheck(
+        status=database_status,
+        latency_ms=round((perf_counter() - database_started_at) * 1000, 2),
+        detail=database_detail,
+    )
+    scheduler_check = SchedulerHealth(
+        **scheduler_runtime.snapshot(
+            enabled=settings.background_alerts_enabled,
+            interval_seconds=max(15, settings.alert_check_seconds),
+        )
+    )
+    email_configured = email_is_configured(settings)
+    email_check = HealthCheck(
+        status="ok" if email_configured else "unconfigured",
+        detail=email_provider(settings) if email_configured else "Email notifications are not configured",
+    )
+    overall_status = (
+        "degraded"
+        if database_check.status == "error" or scheduler_check.status in {"error", "degraded"}
+        else "ok"
+    )
+    if database_check.status == "error":
+        response.status_code = 503
     return HealthResponse(
-        status="ok",
+        status=overall_status,
+        checked_at=utc_iso(),
+        uptime_seconds=round(monotonic() - PROCESS_STARTED_MONOTONIC, 2),
+        version=(os.getenv("RENDER_GIT_COMMIT") or os.getenv("GIT_COMMIT") or "local")[:12],
         environment=settings.chain_scope_env,
         market_provider="Binance Spot/Futures/Klines + CoinGecko + Gold API + Alternative.me",
         database="postgresql" if settings.resolved_database_url.startswith("postgresql") else "sqlite",
         background_alerts=settings.background_alerts_enabled,
+        checks={
+            "database": database_check,
+            "scheduler": scheduler_check,
+            "email": email_check,
+        },
     )
 
 

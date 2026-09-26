@@ -29,6 +29,7 @@ ChainScope 是一个面向学习与作品集展示的 Web3 智能市场分析与
 - 仅在安全状态首次越线时生成事件，避免重复通知；支持确认和历史追溯
 - 站内通知默认可用；支持 QQ、网易和自定义 SMTP 邮件预警及一键测试
 - 对上游接口提供缓存、超时、重试和友好错误处理
+- 生产环境输出带请求编号、状态码和耗时的 JSON 日志；健康检查报告数据库延迟、调度器最近运行状态、邮件配置、运行时间与部署版本
 - 提供自动化测试、Docker 配置和 GitHub Actions 持续集成
 
 ## 系统架构
@@ -121,6 +122,9 @@ Render 免费 Web Service 闲置后会休眠，所以休眠期间后台检查暂
 后端默认不需要 API Key 即可运行。复制 `backend/.env.example` 为 `backend/.env` 可修改配置：
 
 ```env
+CHAIN_SCOPE_ENV=production
+LOG_LEVEL=INFO
+LOG_JSON=true
 COINGECKO_DEMO_API_KEY=
 GOLD_API_URL=https://api.gold-api.com/price/XAU
 MASSIVE_API_URL=https://api.massive.com
@@ -169,7 +173,7 @@ pnpm test:e2e
 
 | 方法 | 地址 | 用途 |
 | --- | --- | --- |
-| GET | `/api/health` | 服务与数据源状态 |
+| GET | `/api/health` | 数据库、预警调度器、邮件配置、运行时间和部署版本状态 |
 | GET | `/api/markets` | 市场概览 |
 | GET | `/api/assets/{asset_id}/candles` | 服务器转发的 Binance 加密 K 线与 Massive XAU/USD K 线；支持八种周期 |
 | GET | `/api/coins/{coin_id}/history` | 历史价格和成交量 |

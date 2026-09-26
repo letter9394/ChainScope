@@ -119,12 +119,35 @@ class RiskBacktestResult(BaseModel):
     calculated_at: str
 
 
+class HealthCheck(BaseModel):
+    status: Literal["ok", "starting", "degraded", "disabled", "unconfigured", "error"]
+    latency_ms: float | None = None
+    detail: str | None = None
+
+
+class SchedulerHealth(HealthCheck):
+    interval_seconds: int
+    running: bool = False
+    last_started_at: str | None = None
+    last_completed_at: str | None = None
+    last_error_at: str | None = None
+    last_error_type: str | None = None
+    last_duration_ms: float | None = None
+    last_evaluated_users: int = 0
+    last_triggered_events: int = 0
+    last_failed_users: int = 0
+
+
 class HealthResponse(BaseModel):
-    status: Literal["ok"]
+    status: Literal["ok", "degraded"]
+    checked_at: str
+    uptime_seconds: float
+    version: str
     environment: str
     market_provider: str
     database: str = "sqlite"
     background_alerts: bool = False
+    checks: dict[str, HealthCheck | SchedulerHealth] = Field(default_factory=dict)
 
 
 class NewsArticle(BaseModel):

@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from app.main import app, get_market_client
+from app.main import app, get_database, get_market_client
 from app.models import CandlePoint, CandleSeries, DerivativesSnapshot, HistoryPoint, MarketCoin, NewsResponse
 
 
@@ -58,6 +58,39 @@ def test_health_endpoint() -> None:
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+    assert response.json()["checks"]["database"]["status"] == "ok"
+    assert response.json()["checks"]["scheduler"]["status"] in {"starting", "ok"}
+    assert response.json()["checks"]["scheduler"]["interval_seconds"] >= 15
+    assert "last_evaluated_users" in response.json()["checks"]["scheduler"]
+    assert response.json()["checked_at"]
+    assert response.json()["uptime_seconds"] >= 0
+    assert response.headers["x-request-id"]
+
+
+def test_health_endpoint_reports_database_failure_without_leaking_connection_details() -> None:
+    class BrokenDatabase:
+        def ping(self) -> None:
+            raise RuntimeError("postgresql://secret-user:secret-password@example.invalid/db")
+
+    app.dependency_overrides[get_database] = lambda: BrokenDatabase()
+    try:
+        response = client.get("/api/health")
+    finally:
+        app.dependency_overrides.pop(get_database, None)
+
+    assert response.status_code == 503
+    assert response.json()["status"] == "degraded"
+    database_check = response.json()["checks"]["database"]
+    assert database_check["status"] == "error"
+    assert "RuntimeError" in database_check["detail"]
+    assert "secret-password" not in response.text
+
+
+def test_request_id_is_preserved_for_safe_values() -> None:
+    response = client.get("/api/markets", headers={"X-Request-ID": "e2e-request-123"})
+
+    assert response.status_code == 200
+    assert response.headers["x-request-id"] == "e2e-request-123"
 
 
 def test_markets_endpoint() -> None:

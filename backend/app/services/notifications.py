@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import logging
 import smtplib
 from email.message import EmailMessage
 from typing import Awaitable, Callable
@@ -23,6 +24,8 @@ SMTP_PROVIDERS = {
     "smtp.126.com": "网易 126 邮箱",
     "smtp.yeah.net": "网易 Yeah 邮箱",
 }
+
+logger = logging.getLogger("chainscope.notifications")
 
 
 def brevo_is_configured(settings: Settings) -> bool:
@@ -150,6 +153,7 @@ class NotificationService:
 
         status = "failed"
         error_message = None
+        error_type = None
         for delay in (0, 1, 3):
             if delay:
                 await asyncio.sleep(delay)
@@ -160,6 +164,7 @@ class NotificationService:
                 break
             except Exception as exc:  # Email failures must never stop the alert scheduler.
                 error_message = str(exc)[:1000]
+                error_type = type(exc).__name__
 
         with self.database.session() as session:
             row = session.scalar(
@@ -181,6 +186,17 @@ class NotificationService:
                 row.status = status
                 row.error_message = error_message
             session.commit()
+        log_method = logger.info if status == "sent" else logger.error
+        log_method(
+            "notification_delivery_completed",
+            extra={
+                "channel": "email",
+                "delivery_status": status,
+                "event_id": event.id,
+                "user_id": user_id,
+                "error_type": error_type,
+            },
+        )
 
     async def send_test_email(self, recipient: str) -> None:
         self._require_configuration()

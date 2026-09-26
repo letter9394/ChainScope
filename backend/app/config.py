@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     )
 
     chain_scope_env: str = "development"
+    log_level: str = "INFO"
+    log_json: bool | None = None
     coingecko_base_url: str = "https://api.coingecko.com/api/v3"
     coingecko_demo_api_key: str | None = None
     binance_market_url: str = "https://data-api.binance.vision"
