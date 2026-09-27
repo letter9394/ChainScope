@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     session_secret: str = "change-this-development-secret"
     session_cookie_name: str = "chainscope_session"
     session_max_age_seconds: int = 60 * 60 * 24 * 30
+    csrf_protection_enabled: bool = True
+    csrf_cookie_name: str = "chainscope_csrf"
+    csrf_max_age_seconds: int = 60 * 60 * 2
     password_reset_max_age_seconds: int = 30 * 60
     email_verification_max_age_seconds: int = 60 * 60 * 24
     auth_register_limit: int = 5

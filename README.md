@@ -24,6 +24,7 @@ ChainScope 是一个面向学习与作品集展示的 Web3 智能市场分析与
 - 支持 OpenAI 兼容接口；未配置密钥时自动使用规则分析并明确标注
 - 邮箱注册/登录使用 HttpOnly 签名 Cookie，密码只保存 scrypt 哈希；新账号需完成 24 小时有效的邮箱验证后才能开启邮件预警
 - 登录、注册、找回密码和验证邮件重发均有 IP＋账号双维度滑动窗口限流，并返回标准 `429` / `Retry-After`
+- 所有写请求使用带时效签名的双提交 CSRF Token，并同时校验 `Origin` / `Referer` / `Sec-Fetch-Site`；令牌失效时前端仅自动刷新重试一次
 - PostgreSQL 按用户隔离自选、预警规则、事件与通知设置；本地开发可退回 SQLite
 - 自定义“风险分”或“24 小时涨跌幅”阈值，服务器在线时每 60 秒后台检查
 - 仅在安全状态首次越线时生成事件，避免重复通知；支持确认和历史追溯
@@ -183,6 +184,7 @@ pnpm test:e2e
 | GET | `/api/news` | 新闻与情绪分析 |
 | POST | `/api/news/translate` | 将一条英文新闻按需翻译为中文 |
 | POST | `/api/auth/register`、`/api/auth/login`、`/api/auth/logout` | 用户注册、登录、退出 |
+| GET | `/api/auth/csrf` | 获取写请求所需的签名 CSRF Token，并设置同源 Cookie |
 | POST | `/api/auth/email-verification/confirm`、`/api/auth/email-verification/resend` | 确认或重发邮箱验证 |
 | POST | `/api/auth/password-reset/request`、`/api/auth/password-reset/confirm` | 申请并完成一次性密码重置 |
 | GET | `/api/auth/me` | 获取当前登录账号 |
@@ -222,7 +224,7 @@ ChainScope/
 - 免费数据不提供可靠的历史全市场爆仓回补；实时强平仅从页面建立 WebSocket 后累计
 - 链上大额转账和交易所净流入需要可靠的链上索引服务/API Key，当前不使用伪造数据代替
 - 当前认证限流保存在单个 Web 进程内；多实例部署应改用 Redis 等共享存储实现全局限流
-- 可进一步加入 CSRF 防护审计、链上数据供应商和多市场走样检验
+- 可进一步加入链上数据供应商、多市场走样检验，以及多实例部署所需的 Redis 全局限流
 
 ## License
 

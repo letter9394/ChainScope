@@ -4,7 +4,6 @@ import re
 from urllib.parse import unquote
 
 import pytest
-from fastapi.testclient import TestClient
 
 from app.config import Settings, get_settings
 from app.database import Database
@@ -15,6 +14,7 @@ from app.services.notifications import (
     email_provider,
     masked_email,
 )
+from tests.support import CsrfTestClient
 
 
 def configured_settings() -> Settings:
@@ -108,7 +108,7 @@ def test_logged_in_user_can_enable_and_test_email(tmp_path: Path, monkeypatch) -
     )
     monkeypatch.setattr("app.main.monotonic", lambda: 10.0)
     _last_test_email_sent.clear()
-    client = TestClient(app)
+    client = CsrfTestClient(app)
     try:
         registered = client.post(
             "/api/auth/register",

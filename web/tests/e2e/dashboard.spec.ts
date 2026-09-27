@@ -8,8 +8,8 @@ const markets = [
   { id: "gold", symbol: "XAU", name: "Gold Spot", image: null, current_price: 4290, market_cap: null, total_volume: null, price_change_percentage_24h: null, price_change_percentage_7d: null, last_updated: now, sparkline: [] },
 ];
 
-function json(route: Route, body: unknown, status = 200) {
-  return route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+function json(route: Route, body: unknown, status = 200, headers: Record<string, string> = {}) {
+  return route.fulfill({ status, headers, contentType: "application/json", body: JSON.stringify(body) });
 }
 
 async function mockApi(page: Page) {
@@ -17,6 +17,36 @@ async function mockApi(page: Page) {
     const url = new URL(route.request().url());
     if (url.pathname === "/api/markets") return json(route, markets);
     if (url.pathname === "/api/auth/me") return json(route, { detail: "Not authenticated" }, 401);
+    if (url.pathname === "/api/auth/csrf") {
+      return json(
+        route,
+        { csrf_token: "e2e-csrf-token" },
+        200,
+        { "Set-Cookie": "chainscope_csrf=e2e-csrf-token; Path=/; SameSite=Lax" },
+      );
+    }
+    if (url.pathname === "/api/auth/register") {
+      return json(route, {
+        id: 1,
+        email: "csrf-e2e@example.com",
+        created_at: now,
+        email_verified: false,
+      }, 201);
+    }
+    if (url.pathname === "/api/watchlist") return json(route, []);
+    if (url.pathname === "/api/alerts/rules") return json(route, []);
+    if (url.pathname === "/api/alerts/events") return json(route, []);
+    if (url.pathname === "/api/notifications/settings") {
+      return json(route, {
+        email_enabled: false,
+        in_app_enabled: true,
+        email_available: false,
+        email_provider: "尚未配置",
+        email_sender: null,
+        schedule_seconds: 60,
+        schedule_mode: "后台定时检查",
+      });
+    }
     if (url.pathname.endsWith("/candles")) {
       const assetId = url.pathname.split("/")[3];
       const interval = url.searchParams.get("interval") ?? "15m";
@@ -90,4 +120,20 @@ test("keeps the native gold fallback usable across timeframes", async ({ page })
   await page.getByLabel("XAU K线周期").getByRole("button", { name: "5分", exact: true }).click();
   await expect(page.getByLabel("XAU K线周期").getByRole("button", { name: "5分", exact: true })).toHaveClass(/active/);
   await expect(page.getByText("Application error", { exact: false })).toHaveCount(0);
+});
+
+test("attaches a CSRF token before account registration", async ({ page }) => {
+  await page.locator("#account").scrollIntoViewIfNeeded();
+  await page.getByRole("button", { name: "注册", exact: true }).click();
+  await page.getByLabel("邮箱").fill("csrf-e2e@example.com");
+  await page.getByLabel("密码").fill("safe-password-1");
+
+  const registrationRequest = page.waitForRequest((request) =>
+    new URL(request.url()).pathname === "/api/auth/register",
+  );
+  await page.getByRole("button", { name: "创建账号" }).click();
+  const request = await registrationRequest;
+
+  expect(request.headers()["x-csrf-token"]).toBe("e2e-csrf-token");
+  await expect(page.getByRole("heading", { name: "csrf-e2e@example.com" })).toBeVisible();
 });

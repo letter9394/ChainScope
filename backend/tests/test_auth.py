@@ -3,13 +3,13 @@ import re
 from urllib.parse import unquote
 
 import pytest
-from fastapi.testclient import TestClient
 
 from app.config import Settings, get_settings
 from app.database import Database, UserRow
 from app.main import _auth_rate_limiter, app, get_database
 from app.services.auth import UserRepository
 from app.services.notifications import NotificationService
+from tests.support import CsrfTestClient
 
 
 @pytest.fixture
@@ -22,8 +22,8 @@ def clients(tmp_path: Path):
     )
     app.dependency_overrides[get_database] = lambda: database
     app.dependency_overrides[get_settings] = lambda: settings
-    first = TestClient(app)
-    second = TestClient(app)
+    first = CsrfTestClient(app)
+    second = CsrfTestClient(app)
     yield first, second
     app.dependency_overrides.pop(get_database, None)
     app.dependency_overrides.pop(get_settings, None)
@@ -126,7 +126,7 @@ def test_password_reset_email_preserves_account_data(tmp_path: Path, monkeypatch
     _auth_rate_limiter.clear()
     app.dependency_overrides[get_database] = lambda: database
     app.dependency_overrides[get_settings] = lambda: settings
-    client = TestClient(app)
+    client = CsrfTestClient(app)
     try:
         assert client.post(
             "/api/auth/register",
@@ -194,7 +194,7 @@ def test_email_verification_unlocks_email_notifications(tmp_path: Path, monkeypa
     )
     app.dependency_overrides[get_database] = lambda: database
     app.dependency_overrides[get_settings] = lambda: settings
-    client = TestClient(app)
+    client = CsrfTestClient(app)
     try:
         registered = client.post(
             "/api/auth/register",

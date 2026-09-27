@@ -20,6 +20,8 @@ import type {
 } from "./types";
 
 const CONFIGURED_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
+const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+let csrfTokenPromise: Promise<string> | null = null;
 
 function apiBaseUrl(): string {
   if (CONFIGURED_API_BASE_URL) return CONFIGURED_API_BASE_URL;
@@ -33,17 +35,64 @@ function apiBaseUrl(): string {
   return "";
 }
 
+
+async function loadCsrfToken(forceRefresh = false): Promise<string> {
+  if (forceRefresh) csrfTokenPromise = null;
+  if (!csrfTokenPromise) {
+    csrfTokenPromise = fetch(`${apiBaseUrl()}/api/auth/csrf`, {
+      cache: "no-store",
+      credentials: "include",
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`安全令牌初始化失败（${response.status}）`);
+        const body = await response.json() as { csrf_token?: string };
+        if (!body.csrf_token) throw new Error("安全令牌响应无效");
+        return body.csrf_token;
+      })
+      .catch((error) => {
+        csrfTokenPromise = null;
+        throw error;
+      });
+  }
+  return csrfTokenPromise;
+}
+
+async function fetchApi(
+  path: string,
+  signal?: AbortSignal,
+  init: RequestInit = {},
+  csrfRetry = true,
+): Promise<Response> {
+  const method = (init.method ?? "GET").toUpperCase();
+  const headers = new Headers(init.headers);
+  if (UNSAFE_METHODS.has(method)) {
+    headers.set("X-CSRF-Token", await loadCsrfToken());
+  }
+  const response = await fetch(`${apiBaseUrl()}${path}`, {
+    ...init,
+    headers,
+    signal,
+    cache: "no-store",
+    credentials: "include",
+  });
+  if (
+    csrfRetry &&
+    UNSAFE_METHODS.has(method) &&
+    response.status === 403 &&
+    response.headers.get("X-CSRF-Error") === "1"
+  ) {
+    await loadCsrfToken(true);
+    return fetchApi(path, signal, init, false);
+  }
+  return response;
+}
+
 async function apiRequest<T>(
   path: string,
   signal?: AbortSignal,
   init: RequestInit = {},
 ): Promise<T> {
-  const response = await fetch(`${apiBaseUrl()}${path}`, {
-    ...init,
-    signal,
-    cache: "no-store",
-    credentials: "include",
-  });
+  const response = await fetchApi(path, signal, init);
 
   if (!response.ok) {
     let message = `请求失败（${response.status}）`;
@@ -61,6 +110,13 @@ async function apiRequest<T>(
   }
 
   return response.json() as Promise<T>;
+}
+
+async function apiVoidRequest(path: string, init: RequestInit): Promise<void> {
+  const response = await fetchApi(path, undefined, init);
+  if (!response.ok && response.status !== 204) {
+    throw new Error(`请求失败（${response.status}）`);
+  }
 }
 
 export const getMarkets = (signal?: AbortSignal) =>
@@ -154,10 +210,7 @@ export const addToWatchlist = (coinId: string) =>
   apiRequest<WatchlistItem>(`/api/watchlist/${coinId}`, undefined, { method: "POST" });
 
 export async function removeFromWatchlist(coinId: string): Promise<void> {
-  const response = await fetch(`${apiBaseUrl()}/api/watchlist/${coinId}`, { method: "DELETE", credentials: "include" });
-  if (!response.ok && response.status !== 204) {
-    throw new Error(`删除自选失败（${response.status}）`);
-  }
+  await apiVoidRequest(`/api/watchlist/${coinId}`, { method: "DELETE" });
 }
 
 export const getAlertRules = (signal?: AbortSignal) =>
@@ -171,10 +224,7 @@ export const createAlertRule = (input: AlertRuleInput) =>
   });
 
 export async function deleteAlertRule(ruleId: number): Promise<void> {
-  const response = await fetch(`${apiBaseUrl()}/api/alerts/rules/${ruleId}`, { method: "DELETE", credentials: "include" });
-  if (!response.ok && response.status !== 204) {
-    throw new Error(`删除预警规则失败（${response.status}）`);
-  }
+  await apiVoidRequest(`/api/alerts/rules/${ruleId}`, { method: "DELETE" });
 }
 
 export const getAlertEvents = (signal?: AbortSignal) =>
@@ -234,11 +284,7 @@ export const resendEmailVerification = () =>
   });
 
 export async function logoutUser(): Promise<void> {
-  const response = await fetch(`${apiBaseUrl()}/api/auth/logout`, {
-    method: "POST",
-    credentials: "include",
-  });
-  if (!response.ok && response.status !== 204) throw new Error("退出登录失败");
+  await apiVoidRequest("/api/auth/logout", { method: "POST" });
 }
 
 export const getNotificationSettings = (signal?: AbortSignal) =>

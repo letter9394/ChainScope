@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import hmac
 import logging
 import os
 import re
@@ -7,11 +8,12 @@ from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from functools import lru_cache
 from time import monotonic, perf_counter
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import IntegrityError
 
@@ -19,7 +21,7 @@ from app.config import Settings, get_settings
 from app.database import Database, UserRow
 from app.models import (
     AlertEvaluationResponse, AlertEvent, AlertRule, AlertRuleCreate, AuthCredentials,
-    AuthMessageResponse, AuthUser, CandleSeries, DerivativesSnapshot,
+    AuthMessageResponse, AuthUser, CandleSeries, CsrfTokenResponse, DerivativesSnapshot,
     EmailVerificationConfirm, HealthCheck, HealthResponse, HistoryPoint, MarketCoin,
     NewsResponse, NewsTranslationRequest, NewsTranslationResponse,
     NotificationSettingsResponse, NotificationSettingsUpdate, NotificationTestResponse,
@@ -36,6 +38,7 @@ from app.services.auth import (
     create_session_token, decode_email_verification_token, decode_password_reset_token,
     decode_session_token, user_model, verify_password,
 )
+from app.services.csrf import create_csrf_token, validate_csrf_token
 from app.services.derivatives import get_derivatives_snapshot
 from app.services.market import CoinGeckoClient, MarketDataError, SUPPORTED_COINS
 from app.services.news import get_news, translate_news
@@ -54,6 +57,7 @@ _auth_rate_limiter = InMemoryRateLimiter()
 request_logger = logging.getLogger("chainscope.http")
 service_logger = logging.getLogger("chainscope.service")
 _request_id_pattern = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+_unsafe_methods = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 
 @lru_cache
@@ -100,13 +104,78 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3100", "http://127.0.0.1:3100"],
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["*"],
-)
+def _settings_for_request() -> Settings:
+    override = app.dependency_overrides.get(get_settings)
+    return override() if override is not None else get_settings()
+
+
+def _normalized_origin(value: str | None) -> str | None:
+    if not value:
+        return None
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return None
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+    return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+
+
+def _allowed_origins(request: Request, settings: Settings) -> set[str]:
+    origins = {
+        origin
+        for origin in (
+            _normalized_origin(settings.public_app_url),
+            _normalized_origin(str(request.base_url)),
+        )
+        if origin is not None
+    }
+    if settings.chain_scope_env != "production":
+        origins.update(
+            {
+                "http://localhost:3100",
+                "http://127.0.0.1:3100",
+                "http://localhost:8000",
+                "http://127.0.0.1:8000",
+            }
+        )
+    return origins
+
+
+def _csrf_failure_reason(request: Request, settings: Settings) -> str | None:
+    if (
+        not settings.csrf_protection_enabled
+        or request.method.upper() not in _unsafe_methods
+        or not request.url.path.startswith("/api/")
+    ):
+        return None
+
+    allowed_origins = _allowed_origins(request, settings)
+    origin_header = request.headers.get("origin")
+    referer_header = request.headers.get("referer")
+    supplied_origin = _normalized_origin(origin_header)
+    if origin_header and supplied_origin not in allowed_origins:
+        return "origin"
+    if not origin_header and referer_header:
+        supplied_referer = _normalized_origin(referer_header)
+        if supplied_referer not in allowed_origins:
+            return "referer"
+    if request.headers.get("sec-fetch-site", "").lower() == "cross-site":
+        return "fetch-site"
+
+    cookie_token = request.cookies.get(settings.csrf_cookie_name)
+    header_token = request.headers.get("X-CSRF-Token")
+    if not cookie_token or not header_token:
+        return "missing-token"
+    if not hmac.compare_digest(cookie_token, header_token):
+        return "token-mismatch"
+    if not validate_csrf_token(
+        cookie_token,
+        settings.session_secret,
+        settings.csrf_max_age_seconds,
+    ):
+        return "invalid-token"
+    return None
 
 
 @app.middleware("http")
@@ -118,20 +187,37 @@ async def request_observability(request: Request, call_next):
         else uuid4().hex
     )
     started_at = perf_counter()
-    try:
-        response = await call_next(request)
-    except Exception as exc:
-        request_logger.error(
-            "http_request_failed",
+    csrf_failure = _csrf_failure_reason(request, _settings_for_request())
+    if csrf_failure is not None:
+        response = JSONResponse(
+            status_code=403,
+            content={"detail": "CSRF validation failed"},
+            headers={"X-CSRF-Error": "1"},
+        )
+        request_logger.warning(
+            "csrf_request_rejected",
             extra={
                 "request_id": request_id,
                 "method": request.method,
                 "path": request.url.path,
-                "duration_ms": round((perf_counter() - started_at) * 1000, 2),
-                "error_type": type(exc).__name__,
+                "csrf_reason": csrf_failure,
             },
         )
-        raise
+    else:
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            request_logger.error(
+                "http_request_failed",
+                extra={
+                    "request_id": request_id,
+                    "method": request.method,
+                    "path": request.url.path,
+                    "duration_ms": round((perf_counter() - started_at) * 1000, 2),
+                    "error_type": type(exc).__name__,
+                },
+            )
+            raise
     response.headers["X-Request-ID"] = request_id
     if request.url.path.startswith("/api/") or response.status_code >= 400:
         request_logger.info(
@@ -145,6 +231,18 @@ async def request_observability(request: Request, call_next):
             },
         )
     return response
+
+
+# Added after the function middleware so CORS remains the outermost layer and
+# exposes CSRF refresh signals even when a request is rejected before routing.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3100", "http://127.0.0.1:3100"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    allow_headers=["*"],
+    expose_headers=["X-CSRF-Error", "X-Request-ID"],
+)
 
 
 def get_market_client(settings: Settings = Depends(get_settings)) -> CoinGeckoClient:
@@ -303,6 +401,32 @@ async def asset_candles(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except MarketDataError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@app.get("/api/auth/csrf", response_model=CsrfTokenResponse, tags=["auth"])
+async def csrf_token(
+    request: Request,
+    response: Response,
+    settings: Settings = Depends(get_settings),
+) -> CsrfTokenResponse:
+    token = request.cookies.get(settings.csrf_cookie_name)
+    if not validate_csrf_token(
+        token,
+        settings.session_secret,
+        settings.csrf_max_age_seconds,
+    ):
+        token = create_csrf_token(settings.session_secret)
+    response.set_cookie(
+        key=settings.csrf_cookie_name,
+        value=token,
+        max_age=settings.csrf_max_age_seconds,
+        httponly=False,
+        secure=settings.chain_scope_env == "production",
+        samesite="lax",
+        path="/",
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return CsrfTokenResponse(csrf_token=token)
 
 
 @app.post("/api/auth/register", response_model=AuthUser, status_code=201, tags=["auth"])
