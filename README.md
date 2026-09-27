@@ -1,6 +1,6 @@
 # ChainScope Web3智能市场分析与风险预警平台
 
-[English](README_EN.md) · [学习笔记](docs/LEARNING_NOTES.md) · [用户系统说明](docs/USER_SYSTEM.md) · [贡献指南](CONTRIBUTING.md)
+[English](README_EN.md) · [作品集说明](docs/PORTFOLIO.md) · [演示脚本](docs/DEMO_SCRIPT.md) · [学习笔记](docs/LEARNING_NOTES.md) · [用户系统说明](docs/USER_SYSTEM.md) · [贡献指南](CONTRIBUTING.md)
 
 ChainScope 是一个面向学习与作品集展示的 Web3 智能市场分析与风险预警平台。它把加密资产与黄金现货行情、专业 K 线、中英双语新闻和可解释风险指标放在同一张仪表盘中。v1.1 已加入邮箱账号、用户数据隔离、PostgreSQL 持久化、后台定时检查、站内通知和 SMTP 邮件预警。
 

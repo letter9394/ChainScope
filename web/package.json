@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev --turbopack --port 3100",
     "build": "next build --turbopack",
+    "capture:portfolio": "node scripts/capture-portfolio.mjs",
     "start": "next start --port 3100",
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test"

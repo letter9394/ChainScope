@@ -34,7 +34,8 @@
 - 会话保存在 `HttpOnly` Cookie 中，前端 JavaScript 无法读取；生产环境仅通过 HTTPS 发送。
 - 自选、规则、事件和通知设置的每条查询都包含 `user_id` 条件。
 - Render 通过 `generateValue: true` 创建生产专用 `SESSION_SECRET`，不把密钥提交到 GitHub。
-- 当前限流状态保存在 Web 进程内；正式多实例部署应迁移到 Redis 等共享存储，并继续完成 CSRF 防护审计与数据库迁移工具。
+- 所有写请求使用签名双提交 CSRF Token，并同时检查 `Origin`、`Referer` 与 `Sec-Fetch-Site`；令牌失效时前端最多自动刷新重试一次。
+- 当前限流状态保存在 Web 进程内；正式多实例部署应迁移到 Redis 等共享存储，并补充数据库迁移工具。
 
 ## 免费部署的边界
 

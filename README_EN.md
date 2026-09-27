@@ -1,5 +1,7 @@
 # ChainScope — Web3 Intelligent Market Analysis and Risk Alert Platform
 
+[中文说明](README.md) · [Portfolio case study (中文)](docs/PORTFOLIO.md) · [Demo script (中文)](docs/DEMO_SCRIPT.md)
+
 ChainScope is a full-stack Web3 market intelligence and risk alert platform built as a portfolio and learning project. It combines crypto and spot-gold quotes, professional candlestick charts, bilingual news, and explainable risk indicators in one interface. Version 1.1 adds email accounts, per-user isolation, PostgreSQL persistence, server-side alert checks, in-app notifications, and HTTPS/SMTP email delivery.
 
 ## Highlights
