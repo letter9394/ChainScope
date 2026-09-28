@@ -273,6 +273,14 @@ main { width: min(1220px, calc(100% - 40px)); margin: 0 auto; }
 .backtest-drawdowns { display: grid; gap: 8px; margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--line); }
 .backtest-drawdowns span { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 10px; }
 .backtest-drawdowns b { color: var(--danger); font-weight: 700; }
+.backtest-quality, .backtest-walk-forward { margin-top: 12px; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,.012); }
+.backtest-quality-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.backtest-quality-grid article, .backtest-walk-summary article { padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.018); }
+.backtest-quality-grid span, .backtest-walk-summary span { display: block; color: var(--muted); font-size: 9px; }
+.backtest-quality-grid strong, .backtest-walk-summary strong { display: block; color: var(--accent); font-size: 23px; margin-top: 10px; }
+.backtest-quality-grid small { display: block; color: #718b82; font-size: 8px; line-height: 1.55; margin-top: 7px; }
+.backtest-quality-grid .negative strong, .backtest-walk-summary .negative strong { color: var(--danger); }
+.backtest-quality-grid .positive, .backtest-walk-summary .positive { border-color: rgba(101,230,190,.28); background: rgba(101,230,190,.04); }
 .backtest-analysis-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
 .backtest-analysis-card, .backtest-sensitivity { padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,.012); }
 .backtest-validation-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -287,6 +295,9 @@ main { width: min(1220px, calc(100% - 40px)); margin: 0 auto; }
 .backtest-sensitivity { margin-top: 12px; }
 .backtest-sensitivity-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .backtest-sensitivity-grid article.active { border-color: rgba(101,230,190,.35); box-shadow: inset 0 0 0 1px rgba(101,230,190,.08); }
+.backtest-walk-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 12px; }
+.backtest-walk-table table { min-width: 850px; }
+.backtest-walk-table td:nth-child(n+3), .backtest-walk-table th:nth-child(n+3) { text-align: right; }
 .backtest-signals { margin-top: 26px; }
 .backtest-subheading { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 10px; }
 .backtest-subheading h3 { font-size: 15px; margin: 0; }
@@ -296,7 +307,7 @@ main { width: min(1220px, calc(100% - 40px)); margin: 0 auto; }
 .backtest-table-wrap th, .backtest-table-wrap td { padding: 12px 14px; border-bottom: 1px solid var(--line); font-size: 10px; text-align: right; white-space: nowrap; }
 .backtest-table-wrap th:first-child, .backtest-table-wrap td:first-child { text-align: left; }
 .backtest-table-wrap th { color: var(--muted); font-weight: 500; background: rgba(255,255,255,.018); }
-.backtest-table-wrap td:nth-child(n+4) { color: var(--danger); }
+.backtest-signals .backtest-table-wrap td:nth-child(n+4) { color: var(--danger); }
 .backtest-table-wrap tbody tr:last-child td { border-bottom: 0; }
 .backtest-empty, .backtest-methodology, .backtest-unavailable > p { color: var(--muted); font-size: 11px; line-height: 1.65; }
 .backtest-empty { padding: 20px; border: 1px dashed var(--line); border-radius: 12px; text-align: center; }
@@ -408,6 +419,7 @@ footer strong { color: var(--text); font-size: 15px; }
   .news-grid { grid-template-columns: repeat(2, 1fr); }
   .derivatives-grid { grid-template-columns: repeat(2, 1fr); }
   .backtest-summary { grid-template-columns: repeat(2, 1fr); }
+  .backtest-quality-grid, .backtest-walk-summary { grid-template-columns: repeat(2, 1fr); }
   .backtest-analysis-grid { grid-template-columns: 1fr; }
   .account-panel { grid-template-columns: 1fr; gap: 24px; }
 }
@@ -455,5 +467,6 @@ footer strong { color: var(--text); font-size: 15px; }
   .backtest-horizons { grid-template-columns: 1fr; }
   .backtest-validation-grid, .backtest-sensitivity-grid { grid-template-columns: 1fr; }
   .backtest-regime-grid { grid-template-columns: 1fr; }
+  .backtest-quality-grid, .backtest-walk-summary { grid-template-columns: 1fr; }
   footer { align-items: flex-start; flex-direction: column; justify-content: center; }
 }

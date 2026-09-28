@@ -94,6 +94,35 @@ export function RiskBacktestPanel({
         })}
       </div>
 
+      <section className="backtest-quality">
+        <div className="backtest-subheading">
+          <h3>模型有效性</h3>
+          <span>{backtest.quality.horizon_days} 日跌幅事件 · 与市场自然发生率比较</span>
+        </div>
+        <div className="backtest-quality-grid">
+          <article>
+            <span>市场基准</span>
+            <strong>{backtest.quality.baseline_hit_rate_percent.toFixed(1)}%</strong>
+            <small>{backtest.quality.event_days}/{backtest.quality.evaluated_days} 个评估日自然出现目标跌幅</small>
+          </article>
+          <article>
+            <span>信号精确率</span>
+            <strong>{backtest.quality.precision_percent.toFixed(1)}%</strong>
+            <small>{backtest.quality.true_positive_count} 次命中 · {backtest.quality.false_positive_count} 次误报</small>
+          </article>
+          <article className={backtest.quality.lift > 1 ? "positive" : "negative"}>
+            <span>相对提升 Lift</span>
+            <strong>{backtest.quality.lift.toFixed(2)}×</strong>
+            <small>{backtest.quality.lift > 1 ? "优于随机日期基准" : "未超过随机日期基准"}</small>
+          </article>
+          <article>
+            <span>召回率 / 漏报率</span>
+            <strong>{backtest.quality.recall_percent.toFixed(1)}% / {backtest.quality.miss_rate_percent.toFixed(1)}%</strong>
+            <small>整体准确率 {backtest.quality.accuracy_percent.toFixed(1)}% · 类别不均衡时仅作辅助</small>
+          </article>
+        </div>
+      </section>
+
       <div className="backtest-analysis-grid">
         <section className="backtest-analysis-card">
           <div className="backtest-subheading">
@@ -144,6 +173,38 @@ export function RiskBacktestPanel({
               <small>{item.signal_count} 次信号 · {item.horizon_days} 日平均跌幅 {item.signal_count ? `${item.average_max_drawdown_percent.toFixed(2)}%` : "—"}</small>
             </article>
           ))}
+        </div>
+      </section>
+
+      <section className="backtest-walk-forward">
+        <div className="backtest-subheading">
+          <h3>Walk-forward 滚动验证</h3>
+          <span>3 轮扩展训练 · 每轮保留 {backtest.walk_forward.embargo_days} 日标签隔离</span>
+        </div>
+        <div className="backtest-walk-summary">
+          <article><span>留出期基准</span><strong>{backtest.walk_forward.baseline_hit_rate_percent.toFixed(1)}%</strong></article>
+          <article><span>留出期精确率</span><strong>{backtest.walk_forward.precision_percent.toFixed(1)}%</strong></article>
+          <article className={backtest.walk_forward.lift > 1 ? "positive" : "negative"}><span>留出期 Lift</span><strong>{backtest.walk_forward.lift.toFixed(2)}×</strong></article>
+          <article><span>留出期召回率</span><strong>{backtest.walk_forward.recall_percent.toFixed(1)}%</strong></article>
+        </div>
+        <div className="backtest-table-wrap backtest-walk-table">
+          <table>
+            <thead><tr><th>轮次</th><th>留出区间</th><th>训练点</th><th>所选阈值</th><th>信号/事件</th><th>基准</th><th>精确率</th><th>Lift</th></tr></thead>
+            <tbody>
+              {backtest.walk_forward.folds.map((fold) => (
+                <tr key={fold.fold}>
+                  <td>第 {fold.fold} 轮</td>
+                  <td>{dateFormatter.format(new Date(fold.holdout_start))}—{dateFormatter.format(new Date(fold.holdout_end))}</td>
+                  <td>{fold.training_points}</td>
+                  <td>≥ {fold.selected_threshold}</td>
+                  <td>{fold.holdout_signal_count}/{fold.holdout_event_count}</td>
+                  <td>{fold.baseline_hit_rate_percent.toFixed(1)}%</td>
+                  <td>{fold.precision_percent.toFixed(1)}%</td>
+                  <td>{fold.lift.toFixed(2)}×</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </section>
 

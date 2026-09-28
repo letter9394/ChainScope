@@ -190,6 +190,9 @@ def test_risk_backtest_endpoint_returns_horizon_statistics() -> None:
     assert {item["regime"] for item in body["regimes"]} == {"bull", "bear", "sideways"}
     assert body["validation"]["training_points"] + body["validation"]["holdout_points"] == body["evaluated_points"]
     assert [item["threshold"] for item in body["sensitivity"]] == [50, 60, 70]
+    assert body["quality"]["evaluated_days"] == body["evaluated_points"]
+    assert len(body["walk_forward"]["folds"]) == 3
+    assert body["walk_forward"]["embargo_days"] == 7
 
 
 def test_risk_backtest_endpoint_rejects_unknown_coin() -> None:

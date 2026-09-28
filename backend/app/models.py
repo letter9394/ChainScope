@@ -129,6 +129,54 @@ class RiskBacktestSensitivity(BaseModel):
     average_max_drawdown_percent: float
 
 
+class RiskBacktestQuality(BaseModel):
+    horizon_days: int
+    evaluated_days: int
+    event_days: int
+    signal_count: int
+    true_positive_count: int
+    false_positive_count: int
+    false_negative_count: int
+    true_negative_count: int
+    baseline_hit_rate_percent: float
+    accuracy_percent: float
+    precision_percent: float
+    recall_percent: float
+    miss_rate_percent: float
+    lift: float
+
+
+class RiskBacktestWalkForwardFold(BaseModel):
+    fold: int
+    selected_threshold: int
+    training_points: int
+    holdout_points: int
+    holdout_start: int
+    holdout_end: int
+    holdout_event_count: int
+    holdout_signal_count: int
+    baseline_hit_rate_percent: float
+    precision_percent: float
+    recall_percent: float
+    lift: float
+
+
+class RiskBacktestWalkForward(BaseModel):
+    horizon_days: int
+    embargo_days: int
+    candidate_thresholds: list[int]
+    total_holdout_points: int
+    event_days: int
+    signal_count: int
+    baseline_hit_rate_percent: float
+    accuracy_percent: float
+    precision_percent: float
+    recall_percent: float
+    miss_rate_percent: float
+    lift: float
+    folds: list[RiskBacktestWalkForwardFold]
+
+
 class RiskBacktestResult(BaseModel):
     coin_id: str
     symbol: str
@@ -145,6 +193,8 @@ class RiskBacktestResult(BaseModel):
     regimes: list[RiskBacktestRegime]
     validation: RiskBacktestValidation
     sensitivity: list[RiskBacktestSensitivity]
+    quality: RiskBacktestQuality
+    walk_forward: RiskBacktestWalkForward
     recent_signals: list[RiskBacktestSignal]
     methodology: str
     calculated_at: str

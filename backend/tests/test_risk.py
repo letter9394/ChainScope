@@ -1,7 +1,10 @@
 import pytest
 
 from app.models import DerivativesSnapshot, HistoryPoint
-from app.services.risk import _market_regime, assess_risk, backtest_risk
+from app.services.risk import (
+    _classification_quality, _market_regime, _walk_forward_validation,
+    assess_risk, backtest_risk,
+)
 
 
 def points(prices: list[float], volumes: list[float] | None = None) -> list[HistoryPoint]:
@@ -127,6 +130,9 @@ def test_backtest_measures_forward_drawdowns_after_new_high_risk_signal() -> Non
     assert result.validation.training_points + result.validation.holdout_points == result.evaluated_points
     assert [item.threshold for item in result.sensitivity] == [50, 60, 70]
     assert {item.regime for item in result.regimes} == {"bull", "bear", "sideways"}
+    assert result.quality.precision_percent == 100.0
+    assert result.walk_forward.total_holdout_points > 0
+    assert len(result.walk_forward.folds) >= 1
 
 
 def test_backtest_returns_zero_rates_when_no_high_risk_signal_occurs() -> None:
@@ -149,3 +155,55 @@ def test_market_regime_uses_trailing_prices_only() -> None:
     assert _market_regime(rising, 99) == "bull"
     assert _market_regime(falling, 99) == "bear"
     assert _market_regime(flat, 99) == "sideways"
+
+
+def test_backtest_quality_compares_signals_with_the_market_base_rate() -> None:
+    history = points([100, 100, 96, 100, 100])
+    scores = [(0, 20), (1, 70), (2, 20), (3, 70)]
+    signals = [(1, 70), (3, 70)]
+
+    quality = _classification_quality(
+        history,
+        scores,
+        signals,
+        horizon_days=1,
+        hit_threshold_percent=3,
+    )
+
+    assert quality.baseline_hit_rate_percent == 25.0
+    assert quality.precision_percent == 50.0
+    assert quality.recall_percent == 100.0
+    assert quality.accuracy_percent == 75.0
+    assert quality.lift == 2.0
+    assert (quality.true_positive_count, quality.false_positive_count) == (1, 1)
+
+
+def test_walk_forward_purges_future_labels_before_threshold_selection() -> None:
+    scores = [
+        (index, [30, 55, 30, 65, 30, 75][index % 6])
+        for index in range(60)
+    ]
+    original = points([100.0] * 67)
+    changed_future = points([100.0] * 30 + [60.0, 140.0] * 18 + [100.0])
+
+    original_result = _walk_forward_validation(
+        original,
+        scores,
+        risk_threshold=60,
+        horizon_days=7,
+        hit_threshold_percent=3,
+    )
+    changed_result = _walk_forward_validation(
+        changed_future,
+        scores,
+        risk_threshold=60,
+        horizon_days=7,
+        hit_threshold_percent=3,
+    )
+
+    assert original_result.total_holdout_points == 30
+    assert len(original_result.folds) == 3
+    assert (
+        original_result.folds[0].selected_threshold
+        == changed_result.folds[0].selected_threshold
+    )

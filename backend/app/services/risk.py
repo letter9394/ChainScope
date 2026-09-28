@@ -4,9 +4,10 @@ from datetime import UTC, datetime
 
 from app.models import (
     DerivativesSnapshot, HistoryPoint, NewsArticle, RiskAssessment,
-    RiskBacktestHorizon, RiskBacktestRegime, RiskBacktestResult,
-    RiskBacktestSensitivity, RiskBacktestSignal, RiskBacktestValidation,
-    RiskMetric,
+    RiskBacktestHorizon, RiskBacktestQuality, RiskBacktestRegime,
+    RiskBacktestResult, RiskBacktestSensitivity, RiskBacktestSignal,
+    RiskBacktestValidation, RiskBacktestWalkForward,
+    RiskBacktestWalkForwardFold, RiskMetric,
 )
 
 
@@ -365,6 +366,174 @@ def _hit_rate(values: list[float], hit_threshold_percent: float) -> float:
     return round(hits / len(values) * 100, 1)
 
 
+def _classification_quality(
+    history: list[HistoryPoint],
+    evaluated_scores: list[tuple[int, int]],
+    signal_points: list[tuple[int, int]],
+    *,
+    horizon_days: int,
+    hit_threshold_percent: float,
+) -> RiskBacktestQuality:
+    evaluated_indexes = {index for index, _ in evaluated_scores}
+    event_indexes = {
+        index
+        for index in evaluated_indexes
+        if _future_max_drawdown(history, index, horizon_days) >= hit_threshold_percent
+    }
+    signal_indexes = {
+        index
+        for index, _ in signal_points
+        if index in evaluated_indexes
+    }
+    true_positive_count = len(signal_indexes & event_indexes)
+    false_positive_count = len(signal_indexes - event_indexes)
+    false_negative_count = len(event_indexes - signal_indexes)
+    true_negative_count = len(evaluated_indexes - event_indexes - signal_indexes)
+    evaluated_days = len(evaluated_indexes)
+    signal_count = len(signal_indexes)
+    event_days = len(event_indexes)
+    baseline_rate = event_days / evaluated_days * 100 if evaluated_days else 0.0
+    accuracy = (
+        (true_positive_count + true_negative_count) / evaluated_days * 100
+        if evaluated_days else 0.0
+    )
+    precision = true_positive_count / signal_count * 100 if signal_count else 0.0
+    recall = true_positive_count / event_days * 100 if event_days else 0.0
+    miss_rate = false_negative_count / event_days * 100 if event_days else 0.0
+    lift = precision / baseline_rate if baseline_rate else 0.0
+    return RiskBacktestQuality(
+        horizon_days=horizon_days,
+        evaluated_days=evaluated_days,
+        event_days=event_days,
+        signal_count=signal_count,
+        true_positive_count=true_positive_count,
+        false_positive_count=false_positive_count,
+        false_negative_count=false_negative_count,
+        true_negative_count=true_negative_count,
+        baseline_hit_rate_percent=round(baseline_rate, 1),
+        accuracy_percent=round(accuracy, 1),
+        precision_percent=round(precision, 1),
+        recall_percent=round(recall, 1),
+        miss_rate_percent=round(miss_rate, 1),
+        lift=round(lift, 2),
+    )
+
+
+def _walk_forward_validation(
+    history: list[HistoryPoint],
+    score_series: list[tuple[int, int]],
+    *,
+    risk_threshold: int,
+    horizon_days: int,
+    hit_threshold_percent: float,
+    fold_count: int = 3,
+) -> RiskBacktestWalkForward:
+    candidate_thresholds = list(range(
+        max(20, risk_threshold - 20),
+        min(90, risk_threshold + 20) + 1,
+        5,
+    ))
+    initial_training_points = len(score_series) // 2
+    remaining_points = len(score_series) - initial_training_points
+    fold_size = max(1, remaining_points // fold_count)
+    folds: list[RiskBacktestWalkForwardFold] = []
+    aggregate_scores: list[tuple[int, int]] = []
+    aggregate_signals: list[tuple[int, int]] = []
+
+    for fold_index in range(fold_count):
+        holdout_start_position = initial_training_points + fold_index * fold_size
+        holdout_end_position = (
+            len(score_series)
+            if fold_index == fold_count - 1
+            else min(len(score_series), holdout_start_position + fold_size)
+        )
+        if holdout_start_position >= holdout_end_position:
+            continue
+
+        # Purge the forecast horizon from calibration. Labels for these final
+        # training rows would otherwise reach into the next holdout period.
+        calibration_end = max(1, holdout_start_position - horizon_days)
+        training_scores = score_series[:calibration_end]
+        minimum_training_signals = max(3, round(len(training_scores) / 300))
+        candidates: list[tuple[tuple[float, float, int, int], int]] = []
+        for threshold in candidate_thresholds:
+            training_signals = _threshold_crossings(training_scores, threshold)
+            quality = _classification_quality(
+                history,
+                training_scores,
+                training_signals,
+                horizon_days=horizon_days,
+                hit_threshold_percent=hit_threshold_percent,
+            )
+            if quality.signal_count < minimum_training_signals:
+                continue
+            candidates.append((
+                (
+                    quality.lift,
+                    quality.precision_percent,
+                    quality.signal_count,
+                    -abs(threshold - risk_threshold),
+                ),
+                threshold,
+            ))
+        selected_threshold = max(candidates)[1] if candidates else risk_threshold
+
+        holdout_scores = score_series[holdout_start_position:holdout_end_position]
+        crossing_scores = score_series[holdout_start_position - 1:holdout_end_position]
+        first_holdout_index = holdout_scores[0][0]
+        holdout_signals = [
+            point
+            for point in _threshold_crossings(crossing_scores, selected_threshold)
+            if point[0] >= first_holdout_index
+        ]
+        quality = _classification_quality(
+            history,
+            holdout_scores,
+            holdout_signals,
+            horizon_days=horizon_days,
+            hit_threshold_percent=hit_threshold_percent,
+        )
+        folds.append(RiskBacktestWalkForwardFold(
+            fold=fold_index + 1,
+            selected_threshold=selected_threshold,
+            training_points=len(training_scores),
+            holdout_points=len(holdout_scores),
+            holdout_start=history[holdout_scores[0][0]].timestamp,
+            holdout_end=history[holdout_scores[-1][0]].timestamp,
+            holdout_event_count=quality.event_days,
+            holdout_signal_count=quality.signal_count,
+            baseline_hit_rate_percent=quality.baseline_hit_rate_percent,
+            precision_percent=quality.precision_percent,
+            recall_percent=quality.recall_percent,
+            lift=quality.lift,
+        ))
+        aggregate_scores.extend(holdout_scores)
+        aggregate_signals.extend(holdout_signals)
+
+    aggregate_quality = _classification_quality(
+        history,
+        aggregate_scores,
+        aggregate_signals,
+        horizon_days=horizon_days,
+        hit_threshold_percent=hit_threshold_percent,
+    )
+    return RiskBacktestWalkForward(
+        horizon_days=horizon_days,
+        embargo_days=horizon_days,
+        candidate_thresholds=candidate_thresholds,
+        total_holdout_points=aggregate_quality.evaluated_days,
+        event_days=aggregate_quality.event_days,
+        signal_count=aggregate_quality.signal_count,
+        baseline_hit_rate_percent=aggregate_quality.baseline_hit_rate_percent,
+        accuracy_percent=aggregate_quality.accuracy_percent,
+        precision_percent=aggregate_quality.precision_percent,
+        recall_percent=aggregate_quality.recall_percent,
+        miss_rate_percent=aggregate_quality.miss_rate_percent,
+        lift=aggregate_quality.lift,
+        folds=folds,
+    )
+
+
 def _market_regime(
     history: list[HistoryPoint],
     index: int,
@@ -535,10 +704,25 @@ def backtest_risk(
             ),
         ))
 
+    quality = _classification_quality(
+        clean_history,
+        score_series,
+        signal_points,
+        horizon_days=comparison_horizon,
+        hit_threshold_percent=hit_threshold_percent,
+    )
+    walk_forward = _walk_forward_validation(
+        clean_history,
+        score_series,
+        risk_threshold=risk_threshold,
+        horizon_days=comparison_horizon,
+        hit_threshold_percent=hit_threshold_percent,
+    )
+
     return RiskBacktestResult(
         coin_id=coin_id,
         symbol=symbol,
-        model_version="基础价格模型 v0.2 · 时间分层验证",
+        model_version="基础价格模型 v0.3 · 基准与滚动验证",
         history_days=len(clean_history),
         window_days=window_days,
         risk_threshold=risk_threshold,
@@ -551,11 +735,14 @@ def backtest_risk(
         regimes=regimes,
         validation=validation,
         sensitivity=sensitivity,
+        quality=quality,
+        walk_forward=walk_forward,
         recent_signals=signals[-5:][::-1],
         methodology=(
             f"使用{window_days}日滚动基础风险分；仅记录风险分首次上穿阈值的日期。"
             "命中表示信号后指定窗口内，相对信号日收盘价的最大跌幅达到设定标准；"
-            "市场阶段仅使用信号日前90日价格判定，并按时间顺序以前70%样本、后30%留出样本比较。"
+            "市场阶段仅使用信号日前90日价格判定；Lift比较信号命中率与任意评估日的自然跌幅概率。"
+            "Walk-forward每轮只用此前数据选择阈值，并剔除紧邻留出期的预测窗口，防止标签穿越。"
         ),
         calculated_at=datetime.now(UTC).isoformat(),
     )

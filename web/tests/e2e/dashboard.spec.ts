@@ -99,6 +99,25 @@ async function mockApi(page: Page) {
           { threshold: 60, horizon_days: 7, signal_count: 12, hit_rate_percent: 58.3, average_max_drawdown_percent: 3.1 },
           { threshold: 70, horizon_days: 7, signal_count: 6, hit_rate_percent: 66.7, average_max_drawdown_percent: 3.8 },
         ],
+        quality: {
+          horizon_days: 7, evaluated_days: 300, event_days: 90, signal_count: 12,
+          true_positive_count: 7, false_positive_count: 5, false_negative_count: 83,
+          true_negative_count: 205, baseline_hit_rate_percent: 30, accuracy_percent: 70.7,
+          precision_percent: 58.3, recall_percent: 7.8, miss_rate_percent: 92.2, lift: 1.94,
+        },
+        walk_forward: {
+          horizon_days: 7, embargo_days: 7, candidate_thresholds: [40, 45, 50, 55, 60, 65, 70, 75, 80],
+          total_holdout_points: 150, event_days: 45, signal_count: 6,
+          baseline_hit_rate_percent: 30, accuracy_percent: 70.7, precision_percent: 50,
+          recall_percent: 6.7, miss_rate_percent: 93.3, lift: 1.67,
+          folds: [1, 2, 3].map((fold) => ({
+            fold, selected_threshold: 55 + fold * 5, training_points: 140 + fold * 50,
+            holdout_points: 50, holdout_start: 1_740_000_000 + fold * 10_000_000,
+            holdout_end: 1_750_000_000 + fold * 10_000_000, holdout_event_count: 15,
+            holdout_signal_count: 2, baseline_hit_rate_percent: 30, precision_percent: 50,
+            recall_percent: 6.7, lift: 1.67,
+          })),
+        },
         recent_signals: [], methodology: "E2E fixture", calculated_at: now,
       });
     }
@@ -136,6 +155,13 @@ test("keeps the native gold fallback usable across timeframes", async ({ page })
   await page.getByLabel("XAU K线周期").getByRole("button", { name: "5分", exact: true }).click();
   await expect(page.getByLabel("XAU K线周期").getByRole("button", { name: "5分", exact: true })).toHaveClass(/active/);
   await expect(page.getByText("Application error", { exact: false })).toHaveCount(0);
+});
+
+test("shows base-rate lift and walk-forward validation", async ({ page }) => {
+  await expect(page.getByRole("heading", { name: "模型有效性" })).toBeVisible();
+  await expect(page.getByText("1.94×", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Walk-forward 滚动验证" })).toBeVisible();
+  await expect(page.getByText("第 3 轮", { exact: true })).toBeVisible();
 });
 
 test("attaches a CSRF token before account registration", async ({ page }) => {

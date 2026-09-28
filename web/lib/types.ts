@@ -128,6 +128,54 @@ export interface RiskBacktestSensitivity {
   average_max_drawdown_percent: number;
 }
 
+export interface RiskBacktestQuality {
+  horizon_days: number;
+  evaluated_days: number;
+  event_days: number;
+  signal_count: number;
+  true_positive_count: number;
+  false_positive_count: number;
+  false_negative_count: number;
+  true_negative_count: number;
+  baseline_hit_rate_percent: number;
+  accuracy_percent: number;
+  precision_percent: number;
+  recall_percent: number;
+  miss_rate_percent: number;
+  lift: number;
+}
+
+export interface RiskBacktestWalkForwardFold {
+  fold: number;
+  selected_threshold: number;
+  training_points: number;
+  holdout_points: number;
+  holdout_start: number;
+  holdout_end: number;
+  holdout_event_count: number;
+  holdout_signal_count: number;
+  baseline_hit_rate_percent: number;
+  precision_percent: number;
+  recall_percent: number;
+  lift: number;
+}
+
+export interface RiskBacktestWalkForward {
+  horizon_days: number;
+  embargo_days: number;
+  candidate_thresholds: number[];
+  total_holdout_points: number;
+  event_days: number;
+  signal_count: number;
+  baseline_hit_rate_percent: number;
+  accuracy_percent: number;
+  precision_percent: number;
+  recall_percent: number;
+  miss_rate_percent: number;
+  lift: number;
+  folds: RiskBacktestWalkForwardFold[];
+}
+
 export interface RiskBacktestResult {
   coin_id: string;
   symbol: string;
@@ -144,6 +192,8 @@ export interface RiskBacktestResult {
   regimes: RiskBacktestRegime[];
   validation: RiskBacktestValidation;
   sensitivity: RiskBacktestSensitivity[];
+  quality: RiskBacktestQuality;
+  walk_forward: RiskBacktestWalkForward;
   recent_signals: RiskBacktestSignal[];
   methodology: string;
   calculated_at: string;
