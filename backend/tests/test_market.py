@@ -220,3 +220,32 @@ async def test_history_falls_back_to_binance_when_coingecko_is_unavailable(
     monkeypatch.setattr(client, "_get_binance_history", binance_history)
 
     assert await client.get_history("bitcoin", 30) == fallback
+
+
+@pytest.mark.anyio
+async def test_binance_history_paginates_multi_year_daily_candles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache.clear()
+    client = CoinGeckoClient(Settings())
+    calls: list[dict[str, object]] = []
+    day_ms = 86_400_000
+
+    def row(day: int) -> list[object]:
+        return [day * day_ms, "0", "0", "0", str(100 + day), "0", "0", str(1_000 + day)]
+
+    async def binance(path: str, params: dict[str, object]) -> tuple[object, str]:
+        calls.append(dict(params))
+        if len(calls) == 1:
+            return [row(day) for day in range(200, 1_200)], "https://binance.example"
+        return [row(day) for day in range(200)], "https://binance.example"
+
+    monkeypatch.setattr(client, "_get_binance", binance)
+
+    history = await client._get_binance_history("bitcoin", 1_200)
+
+    assert len(history) == 1_200
+    assert [point.timestamp for point in history] == sorted(point.timestamp for point in history)
+    assert calls[0]["limit"] == 1_000
+    assert calls[1]["limit"] == 200
+    assert calls[1]["endTime"] == 200 * day_ms - 1

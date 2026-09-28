@@ -1,7 +1,7 @@
 import pytest
 
 from app.models import DerivativesSnapshot, HistoryPoint
-from app.services.risk import assess_risk, backtest_risk
+from app.services.risk import _market_regime, assess_risk, backtest_risk
 
 
 def points(prices: list[float], volumes: list[float] | None = None) -> list[HistoryPoint]:
@@ -124,6 +124,9 @@ def test_backtest_measures_forward_drawdowns_after_new_high_risk_signal() -> Non
     }
     assert [item.hit_rate_percent for item in result.horizons] == [100.0, 100.0, 100.0]
     assert [item.worst_max_drawdown_percent for item in result.horizons] == [5.0, 20.0, 30.0]
+    assert result.validation.training_points + result.validation.holdout_points == result.evaluated_points
+    assert [item.threshold for item in result.sensitivity] == [50, 60, 70]
+    assert {item.regime for item in result.regimes} == {"bull", "bear", "sideways"}
 
 
 def test_backtest_returns_zero_rates_when_no_high_risk_signal_occurs() -> None:
@@ -134,3 +137,15 @@ def test_backtest_returns_zero_rates_when_no_high_risk_signal_occurs() -> None:
     assert result.signal_count == 0
     assert all(item.samples == 0 for item in result.horizons)
     assert all(item.hit_rate_percent == 0 for item in result.horizons)
+    assert all(item.signal_count == 0 for item in result.regimes)
+    assert all(item.signal_count == 0 for item in result.sensitivity)
+
+
+def test_market_regime_uses_trailing_prices_only() -> None:
+    rising = points([100 + index for index in range(100)])
+    falling = points([200 - index for index in range(100)])
+    flat = points([100 + (index % 3) for index in range(100)])
+
+    assert _market_regime(rising, 99) == "bull"
+    assert _market_regime(falling, 99) == "bear"
+    assert _market_regime(flat, 99) == "sideways"

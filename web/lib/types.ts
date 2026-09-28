@@ -100,6 +100,34 @@ export interface RiskBacktestSignal {
   future_drawdowns: Record<string, number>;
 }
 
+export interface RiskBacktestRegime {
+  regime: "bull" | "bear" | "sideways";
+  label: string;
+  signal_count: number;
+  hit_count: number;
+  hit_rate_percent: number;
+  average_max_drawdown_percent: number;
+}
+
+export interface RiskBacktestValidation {
+  horizon_days: number;
+  split_timestamp: number;
+  training_points: number;
+  holdout_points: number;
+  training_signal_count: number;
+  holdout_signal_count: number;
+  training_hit_rate_percent: number;
+  holdout_hit_rate_percent: number;
+}
+
+export interface RiskBacktestSensitivity {
+  threshold: number;
+  horizon_days: number;
+  signal_count: number;
+  hit_rate_percent: number;
+  average_max_drawdown_percent: number;
+}
+
 export interface RiskBacktestResult {
   coin_id: string;
   symbol: string;
@@ -113,6 +141,9 @@ export interface RiskBacktestResult {
   sample_start: number;
   sample_end: number;
   horizons: RiskBacktestHorizon[];
+  regimes: RiskBacktestRegime[];
+  validation: RiskBacktestValidation;
+  sensitivity: RiskBacktestSensitivity[];
   recent_signals: RiskBacktestSignal[];
   methodology: string;
   calculated_at: string;

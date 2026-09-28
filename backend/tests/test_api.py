@@ -187,6 +187,9 @@ def test_risk_backtest_endpoint_returns_horizon_statistics() -> None:
     assert body["risk_threshold"] == 60
     assert body["hit_threshold_percent"] == 3.0
     assert [item["horizon_days"] for item in body["horizons"]] == [1, 3, 7]
+    assert {item["regime"] for item in body["regimes"]} == {"bull", "bear", "sideways"}
+    assert body["validation"]["training_points"] + body["validation"]["holdout_points"] == body["evaluated_points"]
+    assert [item["threshold"] for item in body["sensitivity"]] == [50, 60, 70]
 
 
 def test_risk_backtest_endpoint_rejects_unknown_coin() -> None:

@@ -83,7 +83,23 @@ async function mockApi(page: Page) {
         coin_id: "bitcoin", symbol: "BTC", model_version: "test", history_days: 365,
         window_days: 30, risk_threshold: 60, hit_threshold_percent: 3, evaluated_points: 300,
         signal_count: 12, sample_start: 1_700_000_000, sample_end: 1_790_000_000,
-        horizons: [], recent_signals: [], methodology: "E2E fixture", calculated_at: now,
+        horizons: [],
+        regimes: [
+          { regime: "bull", label: "上涨阶段", signal_count: 4, hit_count: 2, hit_rate_percent: 50, average_max_drawdown_percent: 2.5 },
+          { regime: "bear", label: "下跌阶段", signal_count: 4, hit_count: 3, hit_rate_percent: 75, average_max_drawdown_percent: 4.1 },
+          { regime: "sideways", label: "震荡阶段", signal_count: 4, hit_count: 2, hit_rate_percent: 50, average_max_drawdown_percent: 2.9 },
+        ],
+        validation: {
+          horizon_days: 7, split_timestamp: 1_760_000_000, training_points: 210,
+          holdout_points: 90, training_signal_count: 8, holdout_signal_count: 4,
+          training_hit_rate_percent: 62.5, holdout_hit_rate_percent: 50,
+        },
+        sensitivity: [
+          { threshold: 50, horizon_days: 7, signal_count: 16, hit_rate_percent: 50, average_max_drawdown_percent: 2.6 },
+          { threshold: 60, horizon_days: 7, signal_count: 12, hit_rate_percent: 58.3, average_max_drawdown_percent: 3.1 },
+          { threshold: 70, horizon_days: 7, signal_count: 6, hit_rate_percent: 66.7, average_max_drawdown_percent: 3.8 },
+        ],
+        recent_signals: [], methodology: "E2E fixture", calculated_at: now,
       });
     }
     if (url.pathname === "/api/news") return json(route, { articles: [], analysis_mode: "rules", notice: "测试数据" });

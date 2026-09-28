@@ -4,7 +4,9 @@ from datetime import UTC, datetime
 
 from app.models import (
     DerivativesSnapshot, HistoryPoint, NewsArticle, RiskAssessment,
-    RiskBacktestHorizon, RiskBacktestResult, RiskBacktestSignal, RiskMetric,
+    RiskBacktestHorizon, RiskBacktestRegime, RiskBacktestResult,
+    RiskBacktestSensitivity, RiskBacktestSignal, RiskBacktestValidation,
+    RiskMetric,
 )
 
 
@@ -310,6 +312,80 @@ def assess_risk(
     )
 
 
+def _backtest_score_series(
+    coin_id: str,
+    symbol: str,
+    history: list[HistoryPoint],
+    window_days: int,
+    last_signal_index: int,
+) -> list[tuple[int, int]]:
+    return [
+        (
+            index,
+            assess_risk(
+                coin_id,
+                symbol,
+                history[index - window_days + 1:index + 1],
+            ).score,
+        )
+        for index in range(window_days - 1, last_signal_index + 1)
+    ]
+
+
+def _threshold_crossings(
+    scores: list[tuple[int, int]],
+    threshold: int,
+) -> list[tuple[int, int]]:
+    crossings: list[tuple[int, int]] = []
+    previous_score: int | None = None
+    for index, score in scores:
+        if previous_score is not None and previous_score < threshold <= score:
+            crossings.append((index, score))
+        previous_score = score
+    return crossings
+
+
+def _future_max_drawdown(
+    history: list[HistoryPoint],
+    index: int,
+    horizon_days: int,
+) -> float:
+    signal_price = history[index].price
+    minimum_future_price = min(
+        point.price
+        for point in history[index + 1:index + horizon_days + 1]
+    )
+    return round(max(0.0, (signal_price - minimum_future_price) / signal_price * 100), 2)
+
+
+def _hit_rate(values: list[float], hit_threshold_percent: float) -> float:
+    if not values:
+        return 0.0
+    hits = sum(value >= hit_threshold_percent for value in values)
+    return round(hits / len(values) * 100, 1)
+
+
+def _market_regime(
+    history: list[HistoryPoint],
+    index: int,
+    *,
+    lookback_days: int = 90,
+    trend_threshold_percent: float = 10.0,
+) -> str:
+    """Classify a signal using only prices known at the signal timestamp."""
+    start_index = max(0, index - lookback_days)
+    if index - start_index < 30:
+        return "sideways"
+    trailing_return = (
+        history[index].price / history[start_index].price - 1
+    ) * 100
+    if trailing_return >= trend_threshold_percent:
+        return "bull"
+    if trailing_return <= -trend_threshold_percent:
+        return "bear"
+    return "sideways"
+
+
 def backtest_risk(
     coin_id: str,
     symbol: str,
@@ -341,39 +417,31 @@ def backtest_risk(
         raise ValueError(f"At least {required_points} history points are required for backtesting")
 
     last_signal_index = len(clean_history) - maximum_horizon - 1
-    previous_score: int | None = None
-    evaluated_points = 0
+    score_series = _backtest_score_series(
+        coin_id,
+        symbol,
+        clean_history,
+        window_days,
+        last_signal_index,
+    )
+    signal_points = _threshold_crossings(score_series, risk_threshold)
     signals: list[RiskBacktestSignal] = []
     drawdowns_by_horizon: dict[int, list[float]] = {days: [] for days in horizons}
+    signal_drawdowns: dict[int, dict[int, float]] = {}
 
-    for index in range(window_days - 1, last_signal_index + 1):
-        window = clean_history[index - window_days + 1:index + 1]
-        assessment = assess_risk(coin_id, symbol, window)
-        evaluated_points += 1
-        is_new_high_risk_signal = (
-            previous_score is not None
-            and previous_score < risk_threshold <= assessment.score
-        )
-        previous_score = assessment.score
-        if not is_new_high_risk_signal:
-            continue
-
+    for index, score in signal_points:
         signal_price = clean_history[index].price
         future_drawdowns: dict[str, float] = {}
+        signal_drawdowns[index] = {}
         for horizon_days in horizons:
-            future_prices = [
-                point.price
-                for point in clean_history[index + 1:index + horizon_days + 1]
-            ]
-            minimum_future_price = min(future_prices)
-            maximum_drawdown = max(0.0, (signal_price - minimum_future_price) / signal_price * 100)
-            rounded_drawdown = round(maximum_drawdown, 2)
-            drawdowns_by_horizon[horizon_days].append(rounded_drawdown)
-            future_drawdowns[str(horizon_days)] = rounded_drawdown
+            drawdown = _future_max_drawdown(clean_history, index, horizon_days)
+            drawdowns_by_horizon[horizon_days].append(drawdown)
+            signal_drawdowns[index][horizon_days] = drawdown
+            future_drawdowns[str(horizon_days)] = drawdown
 
         signals.append(RiskBacktestSignal(
             timestamp=clean_history[index].timestamp,
-            score=assessment.score,
+            score=score,
             price=round(signal_price, 8),
             future_drawdowns=future_drawdowns,
         ))
@@ -393,23 +461,101 @@ def backtest_risk(
             worst_max_drawdown_percent=round(max(values), 2) if values else 0.0,
         ))
 
+    comparison_horizon = maximum_horizon
+    regime_labels = {
+        "bull": "上涨阶段",
+        "bear": "下跌阶段",
+        "sideways": "震荡阶段",
+    }
+    regime_values: dict[str, list[float]] = {
+        "bull": [],
+        "bear": [],
+        "sideways": [],
+    }
+    for index, _ in signal_points:
+        regime = _market_regime(clean_history, index)
+        regime_values[regime].append(signal_drawdowns[index][comparison_horizon])
+    regimes = []
+    for regime in ("bull", "bear", "sideways"):
+        values = regime_values[regime]
+        hit_count = sum(value >= hit_threshold_percent for value in values)
+        regimes.append(RiskBacktestRegime(
+            regime=regime,
+            label=regime_labels[regime],
+            signal_count=len(values),
+            hit_count=hit_count,
+            hit_rate_percent=_hit_rate(values, hit_threshold_percent),
+            average_max_drawdown_percent=(
+                round(statistics.mean(values), 2) if values else 0.0
+            ),
+        ))
+
+    split_position = max(1, min(len(score_series) - 1, round(len(score_series) * 0.7)))
+    first_holdout_index = score_series[split_position][0]
+    training_drawdowns = [
+        signal_drawdowns[index][comparison_horizon]
+        for index, _ in signal_points
+        if index < first_holdout_index
+    ]
+    holdout_drawdowns = [
+        signal_drawdowns[index][comparison_horizon]
+        for index, _ in signal_points
+        if index >= first_holdout_index
+    ]
+    validation = RiskBacktestValidation(
+        horizon_days=comparison_horizon,
+        split_timestamp=clean_history[first_holdout_index].timestamp,
+        training_points=split_position,
+        holdout_points=len(score_series) - split_position,
+        training_signal_count=len(training_drawdowns),
+        holdout_signal_count=len(holdout_drawdowns),
+        training_hit_rate_percent=_hit_rate(training_drawdowns, hit_threshold_percent),
+        holdout_hit_rate_percent=_hit_rate(holdout_drawdowns, hit_threshold_percent),
+    )
+
+    sensitivity = []
+    sensitivity_thresholds = sorted({
+        max(0, risk_threshold - 10),
+        risk_threshold,
+        min(100, risk_threshold + 10),
+    })
+    for threshold in sensitivity_thresholds:
+        threshold_signals = _threshold_crossings(score_series, threshold)
+        values = [
+            _future_max_drawdown(clean_history, index, comparison_horizon)
+            for index, _ in threshold_signals
+        ]
+        sensitivity.append(RiskBacktestSensitivity(
+            threshold=threshold,
+            horizon_days=comparison_horizon,
+            signal_count=len(values),
+            hit_rate_percent=_hit_rate(values, hit_threshold_percent),
+            average_max_drawdown_percent=(
+                round(statistics.mean(values), 2) if values else 0.0
+            ),
+        ))
+
     return RiskBacktestResult(
         coin_id=coin_id,
         symbol=symbol,
-        model_version="基础价格模型 v0.1",
+        model_version="基础价格模型 v0.2 · 时间分层验证",
         history_days=len(clean_history),
         window_days=window_days,
         risk_threshold=risk_threshold,
         hit_threshold_percent=hit_threshold_percent,
-        evaluated_points=evaluated_points,
+        evaluated_points=len(score_series),
         signal_count=len(signals),
         sample_start=clean_history[0].timestamp,
         sample_end=clean_history[-1].timestamp,
         horizons=horizon_results,
+        regimes=regimes,
+        validation=validation,
+        sensitivity=sensitivity,
         recent_signals=signals[-5:][::-1],
         methodology=(
             f"使用{window_days}日滚动基础风险分；仅记录风险分首次上穿阈值的日期。"
-            "命中表示信号后指定窗口内，相对信号日收盘价的最大跌幅达到设定标准。"
+            "命中表示信号后指定窗口内，相对信号日收盘价的最大跌幅达到设定标准；"
+            "市场阶段仅使用信号日前90日价格判定，并按时间顺序以前70%样本、后30%留出样本比较。"
         ),
         calculated_at=datetime.now(UTC).isoformat(),
     )

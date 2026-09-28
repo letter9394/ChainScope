@@ -101,6 +101,34 @@ class RiskBacktestSignal(BaseModel):
     future_drawdowns: dict[str, float]
 
 
+class RiskBacktestRegime(BaseModel):
+    regime: Literal["bull", "bear", "sideways"]
+    label: str
+    signal_count: int
+    hit_count: int
+    hit_rate_percent: float
+    average_max_drawdown_percent: float
+
+
+class RiskBacktestValidation(BaseModel):
+    horizon_days: int
+    split_timestamp: int
+    training_points: int
+    holdout_points: int
+    training_signal_count: int
+    holdout_signal_count: int
+    training_hit_rate_percent: float
+    holdout_hit_rate_percent: float
+
+
+class RiskBacktestSensitivity(BaseModel):
+    threshold: int
+    horizon_days: int
+    signal_count: int
+    hit_rate_percent: float
+    average_max_drawdown_percent: float
+
+
 class RiskBacktestResult(BaseModel):
     coin_id: str
     symbol: str
@@ -114,6 +142,9 @@ class RiskBacktestResult(BaseModel):
     sample_start: int
     sample_end: int
     horizons: list[RiskBacktestHorizon]
+    regimes: list[RiskBacktestRegime]
+    validation: RiskBacktestValidation
+    sensitivity: list[RiskBacktestSensitivity]
     recent_signals: list[RiskBacktestSignal]
     methodology: str
     calculated_at: str

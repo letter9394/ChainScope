@@ -700,7 +700,7 @@ async def derivatives(
 )
 async def risk_backtest(
     coin_id: str,
-    days: int = Query(default=365, ge=90, le=365),
+    days: int = Query(default=1095, ge=90, le=1825),
     window_days: int = Query(default=30, ge=7, le=90),
     risk_threshold: int = Query(default=60, ge=0, le=100),
     hit_threshold_percent: float = Query(default=3.0, gt=0, le=50),

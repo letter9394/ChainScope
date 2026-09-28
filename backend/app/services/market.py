@@ -263,6 +263,12 @@ class CoinGeckoClient:
         if cached is not None:
             return cached
 
+        # CoinGecko's anonymous historical endpoint is intentionally limited on
+        # longer ranges. Binance daily candles are paginated below, so multi-year
+        # backtests do not silently collapse to a one-year sample.
+        if days > 365:
+            return await self._get_binance_history(coin_id, days)
+
         try:
             payload = await self._get(
                 f"/coins/{coin_id}/market_chart",
@@ -291,24 +297,48 @@ class CoinGeckoClient:
 
     async def _get_binance_history(self, coin_id: str, days: int) -> list[HistoryPoint]:
         symbol = COIN_BINANCE_SYMBOLS[coin_id]
+        rows: list[list[object]] = []
+        remaining = days
+        end_time: int | None = None
         try:
-            payload, _ = await self._get_binance(
-                "/api/v3/klines",
-                {"symbol": symbol, "interval": "1d", "limit": days},
-            )
-        except MarketDataError as exc:
+            while remaining > 0:
+                batch_size = min(1_000, remaining)
+                params: dict[str, str | int] = {
+                    "symbol": symbol,
+                    "interval": "1d",
+                    "limit": batch_size,
+                }
+                if end_time is not None:
+                    params["endTime"] = end_time
+                payload, _ = await self._get_binance("/api/v3/klines", params)
+                if not isinstance(payload, list) or not payload:
+                    break
+                batch = [row for row in payload if isinstance(row, list) and row]
+                if not batch:
+                    break
+                rows.extend(batch)
+                earliest_timestamp = min(int(row[0]) for row in batch)
+                end_time = earliest_timestamp - 1
+                remaining -= len(batch)
+                if len(batch) < batch_size:
+                    break
+        except (MarketDataError, TypeError, ValueError) as exc:
             raise MarketDataError("Historical market data providers are temporarily unavailable") from exc
 
         try:
-            history = [
-                HistoryPoint(
+            history_by_timestamp = {
+                int(row[0]): HistoryPoint(
                     timestamp=int(row[0]),
                     price=float(row[4]),
                     volume=float(row[7]),
                 )
-                for row in payload
-                if isinstance(row, list) and len(row) >= 8
-            ]
+                for row in rows
+                if len(row) >= 8
+            }
+            history = [
+                history_by_timestamp[timestamp]
+                for timestamp in sorted(history_by_timestamp)
+            ][-days:]
         except (TypeError, ValueError) as exc:
             raise MarketDataError("Fallback history provider returned invalid data") from exc
         if len(history) < 2:

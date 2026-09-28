@@ -36,7 +36,7 @@ export function RiskBacktestPanel({
   }
 
   if (loading) {
-    return <section className="panel backtest-section skeleton-panel">正在回放 365 天历史风险信号…</section>;
+    return <section className="panel backtest-section skeleton-panel">正在回放多年度历史风险信号…</section>;
   }
 
   if (error || !backtest) {
@@ -51,6 +51,7 @@ export function RiskBacktestPanel({
 
   const sampleStart = dateFormatter.format(new Date(backtest.sample_start));
   const sampleEnd = dateFormatter.format(new Date(backtest.sample_end));
+  const splitDate = dateFormatter.format(new Date(backtest.validation.split_timestamp));
 
   return (
     <section className="panel backtest-section" id="risk-backtest">
@@ -70,7 +71,7 @@ export function RiskBacktestPanel({
         <article><span>滚动窗口</span><strong>{backtest.window_days} 日</strong></article>
         <article><span>高风险阈值</span><strong>≥ {backtest.risk_threshold} 分</strong></article>
         <article><span>命中定义</span><strong>跌幅 ≥ {backtest.hit_threshold_percent}%</strong></article>
-        <article><span>有效评估日</span><strong>{backtest.evaluated_points}</strong></article>
+        <article><span>历史覆盖</span><strong>{backtest.history_days} 日</strong></article>
       </div>
 
       <div className="backtest-horizons">
@@ -92,6 +93,59 @@ export function RiskBacktestPanel({
           );
         })}
       </div>
+
+      <div className="backtest-analysis-grid">
+        <section className="backtest-analysis-card">
+          <div className="backtest-subheading">
+            <h3>时间外验证</h3>
+            <span>以 {splitDate} 为分界 · {backtest.validation.horizon_days} 日结果</span>
+          </div>
+          <div className="backtest-validation-grid">
+            <article>
+              <span>前 70% 历史区间</span>
+              <strong>{backtest.validation.training_hit_rate_percent.toFixed(1)}%</strong>
+              <small>{backtest.validation.training_signal_count} 次信号 · {backtest.validation.training_points} 个评估日</small>
+            </article>
+            <article className="holdout">
+              <span>后 30% 留出区间</span>
+              <strong>{backtest.validation.holdout_hit_rate_percent.toFixed(1)}%</strong>
+              <small>{backtest.validation.holdout_signal_count} 次信号 · {backtest.validation.holdout_points} 个评估日</small>
+            </article>
+          </div>
+        </section>
+
+        <section className="backtest-analysis-card">
+          <div className="backtest-subheading">
+            <h3>市场阶段分层</h3>
+            <span>{backtest.validation.horizon_days} 日命中率</span>
+          </div>
+          <div className="backtest-regime-grid">
+            {backtest.regimes.map((item) => (
+              <article key={item.regime} data-regime={item.regime}>
+                <span>{item.label}</span>
+                <strong>{item.signal_count ? `${item.hit_rate_percent.toFixed(1)}%` : "—"}</strong>
+                <small>{item.signal_count} 次信号 · 平均跌幅 {item.signal_count ? `${item.average_max_drawdown_percent.toFixed(2)}%` : "—"}</small>
+              </article>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      <section className="backtest-sensitivity">
+        <div className="backtest-subheading">
+          <h3>阈值敏感性</h3>
+          <span>检验结论是否过度依赖单一阈值</span>
+        </div>
+        <div className="backtest-sensitivity-grid">
+          {backtest.sensitivity.map((item) => (
+            <article key={item.threshold} className={item.threshold === backtest.risk_threshold ? "active" : ""}>
+              <span>风险分 ≥ {item.threshold}</span>
+              <strong>{item.signal_count ? `${item.hit_rate_percent.toFixed(1)}%` : "—"}</strong>
+              <small>{item.signal_count} 次信号 · {item.horizon_days} 日平均跌幅 {item.signal_count ? `${item.average_max_drawdown_percent.toFixed(2)}%` : "—"}</small>
+            </article>
+          ))}
+        </div>
+      </section>
 
       <div className="backtest-signals">
         <div className="backtest-subheading">
