@@ -147,6 +147,7 @@ MASSIVE_DATA_DELAY_DAYS=2
 BINANCE_MARKET_FALLBACK_URLS=https://api.binance.com,https://api-gcp.binance.com,https://api1.binance.com,https://api.binance.us
 BINANCE_FUTURES_URL=https://fapi.binance.com
 FEAR_GREED_URL=https://api.alternative.me/fng/
+RISK_BACKTEST_CACHE_SECONDS=3600
 DERIVATIVES_CACHE_SECONDS=10
 CANDLE_CACHE_SECONDS=2
 GOLD_CANDLE_CACHE_SECONDS=20

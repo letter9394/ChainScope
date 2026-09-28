@@ -39,6 +39,7 @@ from app.services.auth import (
     create_session_token, decode_email_verification_token, decode_password_reset_token,
     decode_session_token, user_model, verify_password,
 )
+from app.services.cache import cache
 from app.services.csrf import create_csrf_token, validate_csrf_token
 from app.services.derivatives import get_derivatives_snapshot
 from app.services.market import CoinGeckoClient, MarketDataError, SUPPORTED_COINS
@@ -700,15 +701,26 @@ async def derivatives(
 )
 async def risk_backtest(
     coin_id: str,
+    response: Response,
     days: int = Query(default=1095, ge=90, le=1825),
     window_days: int = Query(default=30, ge=7, le=90),
     risk_threshold: int = Query(default=60, ge=0, le=100),
     hit_threshold_percent: float = Query(default=3.0, gt=0, le=50),
     client: CoinGeckoClient = Depends(get_market_client),
+    settings: Settings = Depends(get_settings),
 ) -> RiskBacktestResult:
     try:
+        cache_key = (
+            f"risk-backtest:v4:{coin_id}:{days}:{window_days}:"
+            f"{risk_threshold}:{hit_threshold_percent:g}"
+        )
+        cached = cache.get(cache_key)
+        if isinstance(cached, RiskBacktestResult):
+            response.headers["X-ChainScope-Cache"] = "hit"
+            return cached
+
         history_points = await client.get_history(coin_id, days)
-        return backtest_risk(
+        result = backtest_risk(
             coin_id=coin_id,
             symbol=SUPPORTED_COINS[coin_id],
             history=history_points,
@@ -716,6 +728,9 @@ async def risk_backtest(
             risk_threshold=risk_threshold,
             hit_threshold_percent=hit_threshold_percent,
         )
+        cache.set(cache_key, result, settings.risk_backtest_cache_seconds)
+        response.headers["X-ChainScope-Cache"] = "miss"
+        return result
     except (ValueError, KeyError) as exc:
         raise HTTPException(status_code=404, detail=f"Unsupported coin or insufficient history: {coin_id}") from exc
     except MarketDataError as exc:

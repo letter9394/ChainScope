@@ -2,6 +2,8 @@ from fastapi.testclient import TestClient
 
 from app.main import app, get_database, get_market_client
 from app.models import CandlePoint, CandleSeries, DerivativesSnapshot, HistoryPoint, MarketCoin, NewsResponse
+from app.services.cache import cache
+from app.services.risk import backtest_risk as calculate_backtest
 
 
 class FakeMarketClient:
@@ -196,6 +198,31 @@ def test_risk_backtest_endpoint_returns_horizon_statistics() -> None:
     assert body["feature_model"]["status"] == "validated"
     assert len(body["feature_model"]["folds"]) == 3
     assert len(body["feature_model"]["feature_importance"]) == 10
+
+
+def test_risk_backtest_endpoint_caches_identical_model_evaluations(monkeypatch) -> None:
+    calls = 0
+
+    def counted_backtest(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return calculate_backtest(*args, **kwargs)
+
+    cache.clear()
+    monkeypatch.setattr("app.main.backtest_risk", counted_backtest)
+    try:
+        url = "/api/coins/bitcoin/risk/backtest?days=365&risk_threshold=61"
+        first = client.get(url)
+        second = client.get(url)
+    finally:
+        cache.clear()
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.headers["x-chainscope-cache"] == "miss"
+    assert second.headers["x-chainscope-cache"] == "hit"
+    assert first.json() == second.json()
+    assert calls == 1
 
 
 def test_risk_backtest_endpoint_rejects_unknown_coin() -> None:

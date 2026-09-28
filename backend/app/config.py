@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     market_cache_seconds: int = 60
     gold_cache_seconds: int = 15
     history_cache_seconds: int = 300
+    risk_backtest_cache_seconds: int = 3_600
     candle_cache_seconds: int = 2
     gold_candle_cache_seconds: int = 20
     derivatives_cache_seconds: int = 10
