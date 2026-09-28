@@ -1,6 +1,13 @@
+import asyncio
+
+import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app, get_database, get_market_client
+from app.config import Settings
+from app.main import (
+    _get_or_compute_risk_backtest, _prewarm_default_risk_backtest,
+    _risk_backtest_cache_key, app, get_database, get_market_client,
+)
 from app.models import CandlePoint, CandleSeries, DerivativesSnapshot, HistoryPoint, MarketCoin, NewsResponse
 from app.services.cache import cache
 from app.services.risk import backtest_risk as calculate_backtest
@@ -223,6 +230,56 @@ def test_risk_backtest_endpoint_caches_identical_model_evaluations(monkeypatch) 
     assert second.headers["x-chainscope-cache"] == "hit"
     assert first.json() == second.json()
     assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_risk_backtest_prewarm_populates_the_default_cache(monkeypatch) -> None:
+    settings = Settings(risk_backtest_cache_seconds=60)
+    cache.clear()
+    monkeypatch.setattr("app.main.CoinGeckoClient", lambda _: FakeMarketClient())
+    try:
+        await _prewarm_default_risk_backtest(settings)
+        cached = cache.get(_risk_backtest_cache_key("bitcoin", 1095, 30, 60, 3.0))
+    finally:
+        cache.clear()
+
+    assert cached is not None
+    assert cached.symbol == "BTC"
+
+
+@pytest.mark.asyncio
+async def test_risk_backtest_coalesces_simultaneous_identical_requests() -> None:
+    class DelayedMarketClient(FakeMarketClient):
+        history_calls = 0
+
+        async def get_history(self, coin_id: str, days: int) -> list[HistoryPoint]:
+            self.history_calls += 1
+            await asyncio.sleep(0.01)
+            return await super().get_history(coin_id, days)
+
+    settings = Settings(risk_backtest_cache_seconds=60)
+    market_client = DelayedMarketClient()
+    arguments = {
+        "coin_id": "bitcoin",
+        "days": 365,
+        "window_days": 30,
+        "risk_threshold": 62,
+        "hit_threshold_percent": 3.0,
+        "client": market_client,
+        "settings": settings,
+    }
+    cache.clear()
+    try:
+        first, second = await asyncio.gather(
+            _get_or_compute_risk_backtest(**arguments),
+            _get_or_compute_risk_backtest(**arguments),
+        )
+    finally:
+        cache.clear()
+
+    assert market_client.history_calls == 1
+    assert first[0] == second[0]
+    assert sorted((first[1], second[1])) == [False, True]
 
 
 def test_risk_backtest_endpoint_rejects_unknown_coin() -> None:

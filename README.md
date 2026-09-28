@@ -80,7 +80,7 @@ CoinGecko Binance Futures Gold API CoinDesk PostgreSQL
 
 v0.4 特征实验使用纯 Python 标准化逻辑回归，所有均值、尺度、权重和概率阈值都只能从每轮训练区间计算。系统会并列展示它与 v0.3 固定规则模型的留出期结果，并设置硬性晋级门槛：整体 Lift 必须超过 1、精确率必须高于市场基准、至少两轮验证有效且信号数量充足。未达标的实验模型会保留分析结果，但不会替换线上风险分。
 
-相同币种、样本长度、滚动窗口和阈值的回测结果会在服务端缓存 1 小时，响应头 `X-ChainScope-Cache` 会标记 `miss` 或 `hit`。缓存不会改变模型结论；Render 重启或部署后首次请求仍会执行完整计算。
+相同币种、样本长度、滚动窗口和阈值的回测结果会在服务端缓存 1 小时，响应头 `X-ChainScope-Cache` 会标记 `miss` 或 `hit`。服务启动后会在不阻塞健康检查的后台任务中预热默认 BTC 三年回测；预热失败只记录安全日志，首次成功请求仍可重新计算，不影响服务启动或模型结论。
 
 ## 本地运行
 
@@ -150,6 +150,7 @@ BINANCE_MARKET_FALLBACK_URLS=https://api.binance.com,https://api-gcp.binance.com
 BINANCE_FUTURES_URL=https://fapi.binance.com
 FEAR_GREED_URL=https://api.alternative.me/fng/
 RISK_BACKTEST_CACHE_SECONDS=3600
+RISK_BACKTEST_PREWARM_ENABLED=true
 DERIVATIVES_CACHE_SECONDS=10
 CANDLE_CACHE_SECONDS=2
 GOLD_CANDLE_CACHE_SECONDS=20

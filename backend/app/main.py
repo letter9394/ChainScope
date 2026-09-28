@@ -60,6 +60,7 @@ request_logger = logging.getLogger("chainscope.http")
 service_logger = logging.getLogger("chainscope.service")
 _request_id_pattern = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 _unsafe_methods = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+_risk_backtest_lock = asyncio.Lock()
 
 
 @lru_cache
@@ -82,21 +83,27 @@ async def lifespan(_: FastAPI):
     scheduler_runtime.reset()
     database = database_for_url(settings.resolved_database_url)
     scheduler_task = None
+    backtest_prewarm_task = None
     if settings.background_alerts_enabled:
         scheduler_task = asyncio.create_task(run_alert_scheduler(database, settings))
+    if settings.risk_backtest_prewarm_enabled:
+        backtest_prewarm_task = asyncio.create_task(_prewarm_default_risk_backtest(settings))
     service_logger.info(
         "service_started",
         extra={
             "environment": settings.chain_scope_env,
             "database": "postgresql" if settings.resolved_database_url.startswith("postgresql") else "sqlite",
             "background_alerts": settings.background_alerts_enabled,
+            "risk_backtest_prewarm": settings.risk_backtest_prewarm_enabled,
         },
     )
     yield
-    if scheduler_task is not None:
-        scheduler_task.cancel()
+    for task in (scheduler_task, backtest_prewarm_task):
+        if task is None:
+            continue
+        task.cancel()
         with suppress(asyncio.CancelledError):
-            await scheduler_task
+            await task
     service_logger.info("service_stopped")
 
 
@@ -694,6 +701,87 @@ async def derivatives(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+def _risk_backtest_cache_key(
+    coin_id: str,
+    days: int,
+    window_days: int,
+    risk_threshold: int,
+    hit_threshold_percent: float,
+) -> str:
+    return (
+        f"risk-backtest:v4:{coin_id}:{days}:{window_days}:"
+        f"{risk_threshold}:{hit_threshold_percent:g}"
+    )
+
+
+async def _get_or_compute_risk_backtest(
+    *,
+    coin_id: str,
+    days: int,
+    window_days: int,
+    risk_threshold: int,
+    hit_threshold_percent: float,
+    client: CoinGeckoClient,
+    settings: Settings,
+) -> tuple[RiskBacktestResult, bool]:
+    cache_key = _risk_backtest_cache_key(
+        coin_id,
+        days,
+        window_days,
+        risk_threshold,
+        hit_threshold_percent,
+    )
+    cached = cache.get(cache_key)
+    if isinstance(cached, RiskBacktestResult):
+        return cached, True
+
+    async with _risk_backtest_lock:
+        cached = cache.get(cache_key)
+        if isinstance(cached, RiskBacktestResult):
+            return cached, True
+
+        history_points = await client.get_history(coin_id, days)
+        result = await asyncio.to_thread(
+            backtest_risk,
+            coin_id=coin_id,
+            symbol=SUPPORTED_COINS[coin_id],
+            history=history_points,
+            window_days=window_days,
+            risk_threshold=risk_threshold,
+            hit_threshold_percent=hit_threshold_percent,
+        )
+        cache.set(cache_key, result, settings.risk_backtest_cache_seconds)
+        return result, False
+
+
+async def _prewarm_default_risk_backtest(settings: Settings) -> None:
+    started_at = perf_counter()
+    service_logger.info("risk_backtest_prewarm_started")
+    try:
+        _, cache_hit = await _get_or_compute_risk_backtest(
+            coin_id="bitcoin",
+            days=1095,
+            window_days=30,
+            risk_threshold=60,
+            hit_threshold_percent=3.0,
+            client=CoinGeckoClient(settings),
+            settings=settings,
+        )
+    except Exception as exc:
+        service_logger.warning(
+            "risk_backtest_prewarm_failed",
+            extra={"error_type": type(exc).__name__},
+        )
+        return
+    service_logger.info(
+        "risk_backtest_prewarm_completed",
+        extra={
+            "cache_hit": cache_hit,
+            "duration_ms": round((perf_counter() - started_at) * 1000, 2),
+        },
+    )
+
+
 @app.get(
     "/api/coins/{coin_id}/risk/backtest",
     response_model=RiskBacktestResult,
@@ -710,26 +798,16 @@ async def risk_backtest(
     settings: Settings = Depends(get_settings),
 ) -> RiskBacktestResult:
     try:
-        cache_key = (
-            f"risk-backtest:v4:{coin_id}:{days}:{window_days}:"
-            f"{risk_threshold}:{hit_threshold_percent:g}"
-        )
-        cached = cache.get(cache_key)
-        if isinstance(cached, RiskBacktestResult):
-            response.headers["X-ChainScope-Cache"] = "hit"
-            return cached
-
-        history_points = await client.get_history(coin_id, days)
-        result = backtest_risk(
+        result, cache_hit = await _get_or_compute_risk_backtest(
             coin_id=coin_id,
-            symbol=SUPPORTED_COINS[coin_id],
-            history=history_points,
+            days=days,
             window_days=window_days,
             risk_threshold=risk_threshold,
             hit_threshold_percent=hit_threshold_percent,
+            client=client,
+            settings=settings,
         )
-        cache.set(cache_key, result, settings.risk_backtest_cache_seconds)
-        response.headers["X-ChainScope-Cache"] = "miss"
+        response.headers["X-ChainScope-Cache"] = "hit" if cache_hit else "miss"
         return result
     except (ValueError, KeyError) as exc:
         raise HTTPException(status_code=404, detail=f"Unsupported coin or insufficient history: {coin_id}") from exc
