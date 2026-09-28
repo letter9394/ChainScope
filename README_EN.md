@@ -39,6 +39,8 @@ cd ..
 
 Open http://localhost:3100 for the dashboard and http://localhost:8000/docs for the API documentation.
 
+Application startup automatically applies versioned Alembic migrations. For a manual, legacy-safe migration, run `cd backend` followed by `..\.venv\Scripts\python.exe -m app.migrations`; the command validates and adopts an existing pre-Alembic schema before upgrading it.
+
 ## Public deployment
 
 The root `render.yaml` and multi-stage `Dockerfile` deploy the exported Next.js frontend and FastAPI backend as one same-origin Render service. On Render's free tier, the service sleeps when idle and its SQLite data is ephemeral. Use PostgreSQL or a paid persistent disk for production persistence.

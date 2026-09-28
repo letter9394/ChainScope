@@ -19,6 +19,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.config import Settings, get_settings
 from app.database import Database, UserRow
+from app.migrations import upgrade_database
 from app.models import (
     AlertEvaluationResponse, AlertEvent, AlertRule, AlertRuleCreate, AuthCredentials,
     AuthMessageResponse, AuthUser, CandleSeries, CsrfTokenResponse, DerivativesSnapshot,
@@ -62,7 +63,8 @@ _unsafe_methods = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 @lru_cache
 def database_for_url(url: str) -> Database:
-    return Database(url)
+    upgrade_database(url)
+    return Database(url, initialize_schema=False)
 
 
 def get_database(settings: Settings = Depends(get_settings)) -> Database:

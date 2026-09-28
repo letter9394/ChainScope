@@ -108,13 +108,14 @@ class NotificationDeliveryRow(Base):
 
 
 class Database:
-    def __init__(self, url_or_path: str) -> None:
+    def __init__(self, url_or_path: str, *, initialize_schema: bool = True) -> None:
         url = self._normalize_url(url_or_path)
         connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
         self.url = url
         self.engine = create_engine(url, pool_pre_ping=True, connect_args=connect_args)
         self.session_factory = sessionmaker(bind=self.engine, expire_on_commit=False, class_=Session)
-        self.create_schema()
+        if initialize_schema:
+            self.create_schema()
 
     @staticmethod
     def _normalize_url(value: str) -> str:

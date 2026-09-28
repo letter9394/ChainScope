@@ -97,6 +97,16 @@ cd ..
 .\scripts\start-local.ps1
 ```
 
+应用启动时会自动执行 Alembic 数据库迁移。需要手动检查或执行迁移时：
+
+```powershell
+cd backend
+..\.venv\Scripts\python.exe -m app.migrations
+..\.venv\Scripts\python.exe -m alembic current
+```
+
+`app.migrations` 会先安全接管旧版无版本号数据库，再升级到最新版本；不要对尚未接管的旧库直接运行裸 `alembic upgrade head`。
+
 访问：
 
 - Web 仪表盘：http://localhost:3100
@@ -201,6 +211,7 @@ pnpm test:e2e
 ```text
 ChainScope/
 ├─ backend/               FastAPI 服务、风险引擎与测试
+│  └─ alembic/            版本化数据库迁移
 ├─ web/                   Next.js 前端
 ├─ docs/                  学习笔记与面试解释
 ├─ scripts/               本地启停脚本
