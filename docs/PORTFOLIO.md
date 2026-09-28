@@ -162,9 +162,13 @@ sequenceDiagram
 
 ![ChainScope 风险回测](assets/risk-backtest.png)
 
+### 移动端跨资产回测
+
+![ChainScope 移动端跨资产回测](assets/risk-backtest-mobile.png)
+
 ## 已知边界与下一步
 
 - Render 免费实例休眠时后台任务暂停，严格 7×24 小时预警需要付费常驻实例或独立 Worker。
 - Massive 免费方案的精确 XAU/USD 分钟线延迟两天；实时精确站内黄金需要升级数据权限。
 - 单进程限流与 TTL 缓存适合当前规模，多实例部署应迁移到 Redis。
-- 下一轮量化改进应加入 walk-forward 验证、不同市场阶段分层和阈值敏感性分析，而不是只优化样本内命中率。
+- 当前 v0.4 在 BTC、ETH、SOL 均未通过晋级门槛；下一轮应优先改进标签定义、概率校准和跨周期稳定性，而不是继续堆叠特征追求样本内结果。

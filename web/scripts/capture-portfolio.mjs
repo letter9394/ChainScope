@@ -48,6 +48,23 @@ try {
     animations: "disabled",
   });
 
+  const mobilePage = await browser.newPage({
+    viewport: { width: 390, height: 844 },
+    deviceScaleFactor: 1,
+  });
+  try {
+    await mobilePage.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 120_000 });
+    const mobileBacktest = mobilePage.locator("#risk-backtest");
+    await mobileBacktest.waitFor({ state: "visible", timeout: 120_000 });
+    await mobileBacktest.scrollIntoViewIfNeeded();
+    await mobileBacktest.screenshot({
+      path: resolve(outputDir, "risk-backtest-mobile.png"),
+      animations: "disabled",
+    });
+  } finally {
+    await mobilePage.close();
+  }
+
   console.log(`Portfolio screenshots saved to ${outputDir}`);
 } finally {
   await browser.close();
