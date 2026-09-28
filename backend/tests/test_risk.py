@@ -2,8 +2,9 @@ import pytest
 
 from app.models import DerivativesSnapshot, HistoryPoint
 from app.services.risk import (
-    _classification_quality, _market_regime, _walk_forward_validation,
-    assess_risk, backtest_risk,
+    _classification_quality, _feature_model_validation, _fit_logistic_regression,
+    _market_regime, _predict_probability, _risk_feature_vector,
+    _walk_forward_validation, assess_risk, backtest_risk,
 )
 
 
@@ -133,6 +134,8 @@ def test_backtest_measures_forward_drawdowns_after_new_high_risk_signal() -> Non
     assert result.quality.precision_percent == 100.0
     assert result.walk_forward.total_holdout_points > 0
     assert len(result.walk_forward.folds) >= 1
+    assert result.feature_model.status == "insufficient_data"
+    assert result.feature_model.promoted is False
 
 
 def test_backtest_returns_zero_rates_when_no_high_risk_signal_occurs() -> None:
@@ -206,4 +209,51 @@ def test_walk_forward_purges_future_labels_before_threshold_selection() -> None:
     assert (
         original_result.folds[0].selected_threshold
         == changed_result.folds[0].selected_threshold
+    )
+
+
+def test_risk_features_do_not_read_prices_after_the_feature_date() -> None:
+    original = points([100 + index * 0.2 for index in range(120)])
+    changed_future = points(
+        [100 + index * 0.2 for index in range(101)]
+        + [500 - index for index in range(19)]
+    )
+
+    assert _risk_feature_vector(original, 100) == _risk_feature_vector(changed_future, 100)
+
+
+def test_logistic_regression_learns_an_interpretable_direction() -> None:
+    rows = [[-3.0], [-2.0], [-1.0], [1.0], [2.0], [3.0]]
+    labels = [0, 0, 0, 1, 1, 1]
+
+    weights, intercept, means, scales = _fit_logistic_regression(rows, labels)
+
+    assert weights[0] > 0
+    assert _predict_probability([-2.0], weights, intercept, means, scales) < 0.5
+    assert _predict_probability([2.0], weights, intercept, means, scales) > 0.5
+
+
+def test_feature_model_does_not_use_first_holdout_prices_for_calibration() -> None:
+    base_prices = [100 + index * 0.05 + (index % 20) - 10 for index in range(400)]
+    changed_prices = base_prices[:241] + [60 if index % 2 else 180 for index in range(159)]
+    original = points(base_prices, [1_000 + index for index in range(400)])
+    changed = points(changed_prices, [1_000 + index for index in range(400)])
+
+    original_result = _feature_model_validation(
+        original,
+        last_signal_index=392,
+        horizon_days=7,
+        hit_threshold_percent=3,
+    )
+    changed_result = _feature_model_validation(
+        changed,
+        last_signal_index=392,
+        horizon_days=7,
+        hit_threshold_percent=3,
+    )
+
+    assert original_result.status == "validated"
+    assert (
+        original_result.folds[0].probability_threshold_percent
+        == changed_result.folds[0].probability_threshold_percent
     )

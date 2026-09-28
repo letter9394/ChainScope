@@ -52,6 +52,10 @@ export function RiskBacktestPanel({
   const sampleStart = dateFormatter.format(new Date(backtest.sample_start));
   const sampleEnd = dateFormatter.format(new Date(backtest.sample_end));
   const splitDate = dateFormatter.format(new Date(backtest.validation.split_timestamp));
+  const featureCoefficientMax = Math.max(
+    ...backtest.feature_model.feature_importance.map((item) => Math.abs(item.coefficient)),
+    0.001,
+  );
 
   return (
     <section className="panel backtest-section" id="risk-backtest">
@@ -206,6 +210,81 @@ export function RiskBacktestPanel({
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section className="backtest-feature-model">
+        <div className="backtest-subheading">
+          <h3>v0.4 特征模型实验</h3>
+          <span>{backtest.feature_model.model_name} · {backtest.feature_model.target}</span>
+        </div>
+        {backtest.feature_model.status === "validated" ? (
+          <>
+            <div className={`feature-verdict ${backtest.feature_model.promoted ? "promoted" : "rejected"}`}>
+              <strong>{backtest.feature_model.promoted ? "达到晋级门槛" : "暂不晋级"}</strong>
+              <span>{backtest.feature_model.verdict}</span>
+            </div>
+            <div className="feature-model-comparison">
+              <article>
+                <span>v0.3 固定规则 · 留出期</span>
+                <strong>{backtest.walk_forward.lift.toFixed(2)}× Lift</strong>
+                <small>精确率 {backtest.walk_forward.precision_percent.toFixed(1)}% · {backtest.walk_forward.signal_count} 次信号</small>
+              </article>
+              <article className={backtest.feature_model.promoted ? "winner" : "candidate"}>
+                <span>v0.4 特征模型 · 留出期</span>
+                <strong>{backtest.feature_model.lift.toFixed(2)}× Lift</strong>
+                <small>精确率 {backtest.feature_model.precision_percent.toFixed(1)}% · {backtest.feature_model.signal_count} 次信号</small>
+              </article>
+            </div>
+            <div className="feature-model-details">
+              <div>
+                <div className="backtest-subheading">
+                  <h3>可解释特征系数</h3>
+                  <span>标准化后绝对值排序</span>
+                </div>
+                <div className="feature-importance-list">
+                  {backtest.feature_model.feature_importance.slice(0, 6).map((item) => (
+                    <article key={item.key}>
+                      <div><span>{item.label}</span><b>{item.coefficient > 0 ? "+" : ""}{item.coefficient.toFixed(3)}</b></div>
+                      <i className={item.direction} style={{ width: `${Math.max(6, Math.abs(item.coefficient) / featureCoefficientMax * 100)}%` }} />
+                    </article>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="backtest-subheading">
+                  <h3>实验模型指标</h3>
+                  <span>{backtest.feature_model.total_holdout_points} 个留出评估日</span>
+                </div>
+                <div className="feature-metric-grid">
+                  <article><span>市场基准</span><strong>{backtest.feature_model.baseline_hit_rate_percent.toFixed(1)}%</strong></article>
+                  <article><span>召回率</span><strong>{backtest.feature_model.recall_percent.toFixed(1)}%</strong></article>
+                  <article><span>准确率</span><strong>{backtest.feature_model.accuracy_percent.toFixed(1)}%</strong></article>
+                  <article><span>漏报率</span><strong>{backtest.feature_model.miss_rate_percent.toFixed(1)}%</strong></article>
+                </div>
+              </div>
+            </div>
+            <div className="backtest-table-wrap feature-fold-table">
+              <table>
+                <thead><tr><th>轮次</th><th>留出区间</th><th>概率阈值</th><th>信号/事件</th><th>基准</th><th>精确率</th><th>Lift</th></tr></thead>
+                <tbody>
+                  {backtest.feature_model.folds.map((fold) => (
+                    <tr key={fold.fold}>
+                      <td>第 {fold.fold} 轮</td>
+                      <td>{dateFormatter.format(new Date(fold.holdout_start))}—{dateFormatter.format(new Date(fold.holdout_end))}</td>
+                      <td>≥ {fold.probability_threshold_percent.toFixed(0)}%</td>
+                      <td>{fold.holdout_signal_count}/{fold.holdout_event_count}</td>
+                      <td>{fold.baseline_hit_rate_percent.toFixed(1)}%</td>
+                      <td>{fold.precision_percent.toFixed(1)}%</td>
+                      <td>{fold.lift.toFixed(2)}×</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : (
+          <p className="backtest-empty">{backtest.feature_model.verdict}</p>
+        )}
       </section>
 
       <div className="backtest-signals">

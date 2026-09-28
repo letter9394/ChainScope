@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 from app.models import (
     DerivativesSnapshot, HistoryPoint, NewsArticle, RiskAssessment,
+    RiskFeatureImportance, RiskFeatureModelFold, RiskFeatureModelResult,
     RiskBacktestHorizon, RiskBacktestQuality, RiskBacktestRegime,
     RiskBacktestResult, RiskBacktestSensitivity, RiskBacktestSignal,
     RiskBacktestValidation, RiskBacktestWalkForward,
@@ -368,8 +369,8 @@ def _hit_rate(values: list[float], hit_threshold_percent: float) -> float:
 
 def _classification_quality(
     history: list[HistoryPoint],
-    evaluated_scores: list[tuple[int, int]],
-    signal_points: list[tuple[int, int]],
+    evaluated_scores: list[tuple[int, int | float]],
+    signal_points: list[tuple[int, int | float]],
     *,
     horizon_days: int,
     hit_threshold_percent: float,
@@ -530,6 +531,355 @@ def _walk_forward_validation(
         recall_percent=aggregate_quality.recall_percent,
         miss_rate_percent=aggregate_quality.miss_rate_percent,
         lift=aggregate_quality.lift,
+        folds=folds,
+    )
+
+
+_FEATURE_SPECS = (
+    ("momentum_7d", "7日动量"),
+    ("momentum_30d", "30日动量"),
+    ("momentum_90d", "90日动量"),
+    ("volatility_7d", "7日波动率"),
+    ("volatility_ratio", "短长波动率比"),
+    ("drawdown_30d", "30日回撤"),
+    ("drawdown_7d", "7日回撤速度"),
+    ("volume_zscore", "成交量异常"),
+    ("ma20_distance", "MA20偏离"),
+    ("signed_streak", "连续涨跌天数"),
+)
+
+
+def _risk_feature_vector(history: list[HistoryPoint], index: int) -> list[float]:
+    if index < 90:
+        raise ValueError("Risk features require at least 90 trailing days")
+    current_price = history[index].price
+
+    def momentum(days: int) -> float:
+        previous_price = history[index - days].price
+        return (current_price / previous_price - 1) * 100
+
+    prices_30 = [point.price for point in history[index - 29:index + 1]]
+    prices_7 = [point.price for point in history[index - 6:index + 1]]
+    volatility_7 = _annualized_volatility(_daily_returns(
+        [point.price for point in history[index - 7:index + 1]]
+    ))
+    volatility_30 = _annualized_volatility(_daily_returns(prices_30))
+    volatility_ratio = volatility_7 / volatility_30 if volatility_30 > 0 else 1.0
+    drawdown_30 = (current_price / max(prices_30) - 1) * 100
+    drawdown_7 = (current_price / max(prices_7) - 1) * 100
+
+    volumes = [
+        float(point.volume or 0)
+        for point in history[index - 29:index + 1]
+        if float(point.volume or 0) > 0
+    ]
+    if len(volumes) >= 2:
+        volume_mean = statistics.mean(volumes)
+        volume_deviation = statistics.stdev(volumes)
+        volume_zscore = (
+            (float(history[index].volume or volume_mean) - volume_mean) / volume_deviation
+            if volume_deviation > 0 else 0.0
+        )
+    else:
+        volume_zscore = 0.0
+
+    moving_average_20 = statistics.mean(
+        point.price for point in history[index - 19:index + 1]
+    )
+    ma20_distance = (current_price / moving_average_20 - 1) * 100
+    latest_change = current_price - history[index - 1].price
+    streak_direction = 1 if latest_change > 0 else -1 if latest_change < 0 else 0
+    streak = 0
+    if streak_direction:
+        for cursor in range(index, max(0, index - 10), -1):
+            change = history[cursor].price - history[cursor - 1].price
+            if change * streak_direction <= 0:
+                break
+            streak += streak_direction
+
+    return [
+        momentum(7),
+        momentum(30),
+        momentum(90),
+        volatility_7,
+        volatility_ratio,
+        drawdown_30,
+        drawdown_7,
+        volume_zscore,
+        ma20_distance,
+        float(streak),
+    ]
+
+
+def _fit_logistic_regression(
+    rows: list[list[float]],
+    labels: list[int],
+    *,
+    iterations: int = 320,
+    learning_rate: float = 0.08,
+    l2_penalty: float = 0.015,
+) -> tuple[list[float], float, list[float], list[float]]:
+    if not rows or len(rows) != len(labels):
+        raise ValueError("Training rows and labels must be non-empty and aligned")
+    feature_count = len(rows[0])
+    means = [statistics.mean(row[column] for row in rows) for column in range(feature_count)]
+    scales = []
+    for column in range(feature_count):
+        values = [row[column] for row in rows]
+        deviation = statistics.pstdev(values)
+        scales.append(deviation if deviation > 1e-9 else 1.0)
+    normalized_rows = [
+        [(row[column] - means[column]) / scales[column] for column in range(feature_count)]
+        for row in rows
+    ]
+    weights = [0.0] * feature_count
+    positive_rate = min(0.999, max(0.001, statistics.mean(labels)))
+    intercept = math.log(positive_rate / (1 - positive_rate))
+    sample_count = len(rows)
+
+    for _ in range(iterations):
+        weight_gradients = [0.0] * feature_count
+        intercept_gradient = 0.0
+        for row, label in zip(normalized_rows, labels):
+            linear = intercept + sum(weight * value for weight, value in zip(weights, row))
+            probability = 1 / (1 + math.exp(-max(-30.0, min(30.0, linear))))
+            error = probability - label
+            intercept_gradient += error
+            for column, value in enumerate(row):
+                weight_gradients[column] += error * value
+        intercept_update = learning_rate * intercept_gradient / sample_count
+        intercept -= intercept_update
+        largest_update = abs(intercept_update)
+        for column in range(feature_count):
+            gradient = weight_gradients[column] / sample_count + l2_penalty * weights[column]
+            update = learning_rate * gradient
+            weights[column] -= update
+            largest_update = max(largest_update, abs(update))
+        if largest_update < 1e-6:
+            break
+    return weights, intercept, means, scales
+
+
+def _predict_probability(
+    row: list[float],
+    weights: list[float],
+    intercept: float,
+    means: list[float],
+    scales: list[float],
+) -> float:
+    normalized = [
+        (value - means[column]) / scales[column]
+        for column, value in enumerate(row)
+    ]
+    linear = intercept + sum(weight * value for weight, value in zip(weights, normalized))
+    return 1 / (1 + math.exp(-max(-30.0, min(30.0, linear))))
+
+
+def _probability_crossings(
+    probabilities: list[tuple[int, float]],
+    threshold: float,
+) -> list[tuple[int, float]]:
+    crossings: list[tuple[int, float]] = []
+    previous_probability: float | None = None
+    for index, probability in probabilities:
+        if (
+            previous_probability is not None
+            and previous_probability < threshold <= probability
+        ):
+            crossings.append((index, probability))
+        previous_probability = probability
+    return crossings
+
+
+def _feature_model_validation(
+    history: list[HistoryPoint],
+    *,
+    last_signal_index: int,
+    horizon_days: int,
+    hit_threshold_percent: float,
+    fold_count: int = 3,
+) -> RiskFeatureModelResult:
+    model_name = "v0.4 标准化逻辑回归实验"
+    target = f"未来{horizon_days}日最大跌幅 ≥ {hit_threshold_percent:g}%"
+    samples = [
+        (index, _risk_feature_vector(history, index))
+        for index in range(90, last_signal_index + 1)
+    ]
+    if len(samples) < 180:
+        return RiskFeatureModelResult(
+            status="insufficient_data",
+            model_name=model_name,
+            target=target,
+            horizon_days=horizon_days,
+            lookback_days=90,
+            embargo_days=horizon_days,
+            total_holdout_points=0,
+            event_days=0,
+            signal_count=0,
+            baseline_hit_rate_percent=0.0,
+            accuracy_percent=0.0,
+            precision_percent=0.0,
+            recall_percent=0.0,
+            miss_rate_percent=0.0,
+            lift=0.0,
+            promoted=False,
+            verdict="历史样本不足，至少需要约 270 天数据完成滚动训练与验证。",
+            feature_importance=[],
+            folds=[],
+        )
+
+    probability_thresholds = [0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70]
+    initial_training_points = len(samples) // 2
+    remaining_points = len(samples) - initial_training_points
+    fold_size = max(1, remaining_points // fold_count)
+    folds: list[RiskFeatureModelFold] = []
+    aggregate_scores: list[tuple[int, float]] = []
+    aggregate_signals: list[tuple[int, float]] = []
+    fold_weights: list[list[float]] = []
+
+    for fold_index in range(fold_count):
+        holdout_start_position = initial_training_points + fold_index * fold_size
+        holdout_end_position = (
+            len(samples)
+            if fold_index == fold_count - 1
+            else min(len(samples), holdout_start_position + fold_size)
+        )
+        if holdout_start_position >= holdout_end_position:
+            continue
+        calibration_end = max(1, holdout_start_position - horizon_days)
+        training_samples = samples[:calibration_end]
+        training_rows = [row for _, row in training_samples]
+        training_labels = [
+            int(_future_max_drawdown(history, index, horizon_days) >= hit_threshold_percent)
+            for index, _ in training_samples
+        ]
+        weights, intercept, means, scales = _fit_logistic_regression(
+            training_rows,
+            training_labels,
+        )
+        fold_weights.append(weights)
+        training_probabilities = [
+            (index, _predict_probability(row, weights, intercept, means, scales))
+            for index, row in training_samples
+        ]
+        minimum_training_signals = max(5, round(len(training_samples) / 100))
+        candidates: list[tuple[tuple[float, float, int, float], float]] = []
+        for threshold in probability_thresholds:
+            training_signals = _probability_crossings(training_probabilities, threshold)
+            quality = _classification_quality(
+                history,
+                training_probabilities,
+                training_signals,
+                horizon_days=horizon_days,
+                hit_threshold_percent=hit_threshold_percent,
+            )
+            if quality.signal_count < minimum_training_signals:
+                continue
+            candidates.append((
+                (
+                    quality.lift,
+                    quality.precision_percent,
+                    quality.signal_count,
+                    -abs(threshold - 0.5),
+                ),
+                threshold,
+            ))
+        selected_threshold = max(candidates)[1] if candidates else 0.5
+
+        prediction_samples = samples[holdout_start_position - 1:holdout_end_position]
+        prediction_probabilities = [
+            (index, _predict_probability(row, weights, intercept, means, scales))
+            for index, row in prediction_samples
+        ]
+        holdout_samples = samples[holdout_start_position:holdout_end_position]
+        holdout_indexes = {index for index, _ in holdout_samples}
+        holdout_probabilities = [
+            point for point in prediction_probabilities if point[0] in holdout_indexes
+        ]
+        holdout_signals = [
+            point
+            for point in _probability_crossings(prediction_probabilities, selected_threshold)
+            if point[0] in holdout_indexes
+        ]
+        quality = _classification_quality(
+            history,
+            holdout_probabilities,
+            holdout_signals,
+            horizon_days=horizon_days,
+            hit_threshold_percent=hit_threshold_percent,
+        )
+        folds.append(RiskFeatureModelFold(
+            fold=fold_index + 1,
+            probability_threshold_percent=round(selected_threshold * 100, 1),
+            training_points=len(training_samples),
+            holdout_points=len(holdout_samples),
+            holdout_start=history[holdout_samples[0][0]].timestamp,
+            holdout_end=history[holdout_samples[-1][0]].timestamp,
+            holdout_event_count=quality.event_days,
+            holdout_signal_count=quality.signal_count,
+            baseline_hit_rate_percent=quality.baseline_hit_rate_percent,
+            precision_percent=quality.precision_percent,
+            recall_percent=quality.recall_percent,
+            lift=quality.lift,
+        ))
+        aggregate_scores.extend(holdout_probabilities)
+        aggregate_signals.extend(holdout_signals)
+
+    aggregate_quality = _classification_quality(
+        history,
+        aggregate_scores,
+        aggregate_signals,
+        horizon_days=horizon_days,
+        hit_threshold_percent=hit_threshold_percent,
+    )
+    average_weights = [
+        statistics.mean(weights[column] for weights in fold_weights)
+        for column in range(len(_FEATURE_SPECS))
+    ]
+    feature_importance = sorted(
+        [
+            RiskFeatureImportance(
+                key=key,
+                label=label,
+                coefficient=round(coefficient, 3),
+                direction="raises_risk" if coefficient >= 0 else "lowers_risk",
+            )
+            for (key, label), coefficient in zip(_FEATURE_SPECS, average_weights)
+        ],
+        key=lambda item: abs(item.coefficient),
+        reverse=True,
+    )
+    successful_folds = sum(fold.lift > 1 for fold in folds)
+    promoted = (
+        aggregate_quality.lift > 1
+        and aggregate_quality.precision_percent > aggregate_quality.baseline_hit_rate_percent
+        and successful_folds >= 2
+        and aggregate_quality.signal_count >= 5
+    )
+    verdict = (
+        "通过晋级门槛：留出期相对市场基准有稳定增益，可进入影子运行。"
+        if promoted
+        else "未通过晋级门槛：保留为实验模型，不替换当前线上风险分。"
+    )
+    return RiskFeatureModelResult(
+        status="validated",
+        model_name=model_name,
+        target=target,
+        horizon_days=horizon_days,
+        lookback_days=90,
+        embargo_days=horizon_days,
+        total_holdout_points=aggregate_quality.evaluated_days,
+        event_days=aggregate_quality.event_days,
+        signal_count=aggregate_quality.signal_count,
+        baseline_hit_rate_percent=aggregate_quality.baseline_hit_rate_percent,
+        accuracy_percent=aggregate_quality.accuracy_percent,
+        precision_percent=aggregate_quality.precision_percent,
+        recall_percent=aggregate_quality.recall_percent,
+        miss_rate_percent=aggregate_quality.miss_rate_percent,
+        lift=aggregate_quality.lift,
+        promoted=promoted,
+        verdict=verdict,
+        feature_importance=feature_importance,
         folds=folds,
     )
 
@@ -718,6 +1068,12 @@ def backtest_risk(
         horizon_days=comparison_horizon,
         hit_threshold_percent=hit_threshold_percent,
     )
+    feature_model = _feature_model_validation(
+        clean_history,
+        last_signal_index=last_signal_index,
+        horizon_days=comparison_horizon,
+        hit_threshold_percent=hit_threshold_percent,
+    )
 
     return RiskBacktestResult(
         coin_id=coin_id,
@@ -737,12 +1093,14 @@ def backtest_risk(
         sensitivity=sensitivity,
         quality=quality,
         walk_forward=walk_forward,
+        feature_model=feature_model,
         recent_signals=signals[-5:][::-1],
         methodology=(
             f"使用{window_days}日滚动基础风险分；仅记录风险分首次上穿阈值的日期。"
             "命中表示信号后指定窗口内，相对信号日收盘价的最大跌幅达到设定标准；"
             "市场阶段仅使用信号日前90日价格判定；Lift比较信号命中率与任意评估日的自然跌幅概率。"
             "Walk-forward每轮只用此前数据选择阈值，并剔除紧邻留出期的预测窗口，防止标签穿越。"
+            "v0.4特征模型仅在留出期通过晋级门槛后才允许替代现有规则模型。"
         ),
         calculated_at=datetime.now(UTC).isoformat(),
     )

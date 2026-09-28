@@ -193,6 +193,9 @@ def test_risk_backtest_endpoint_returns_horizon_statistics() -> None:
     assert body["quality"]["evaluated_days"] == body["evaluated_points"]
     assert len(body["walk_forward"]["folds"]) == 3
     assert body["walk_forward"]["embargo_days"] == 7
+    assert body["feature_model"]["status"] == "validated"
+    assert len(body["feature_model"]["folds"]) == 3
+    assert len(body["feature_model"]["feature_importance"]) == 10
 
 
 def test_risk_backtest_endpoint_rejects_unknown_coin() -> None:

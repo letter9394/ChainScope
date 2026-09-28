@@ -176,6 +176,50 @@ export interface RiskBacktestWalkForward {
   folds: RiskBacktestWalkForwardFold[];
 }
 
+export interface RiskFeatureImportance {
+  key: string;
+  label: string;
+  coefficient: number;
+  direction: "raises_risk" | "lowers_risk";
+}
+
+export interface RiskFeatureModelFold {
+  fold: number;
+  probability_threshold_percent: number;
+  training_points: number;
+  holdout_points: number;
+  holdout_start: number;
+  holdout_end: number;
+  holdout_event_count: number;
+  holdout_signal_count: number;
+  baseline_hit_rate_percent: number;
+  precision_percent: number;
+  recall_percent: number;
+  lift: number;
+}
+
+export interface RiskFeatureModelResult {
+  status: "validated" | "insufficient_data";
+  model_name: string;
+  target: string;
+  horizon_days: number;
+  lookback_days: number;
+  embargo_days: number;
+  total_holdout_points: number;
+  event_days: number;
+  signal_count: number;
+  baseline_hit_rate_percent: number;
+  accuracy_percent: number;
+  precision_percent: number;
+  recall_percent: number;
+  miss_rate_percent: number;
+  lift: number;
+  promoted: boolean;
+  verdict: string;
+  feature_importance: RiskFeatureImportance[];
+  folds: RiskFeatureModelFold[];
+}
+
 export interface RiskBacktestResult {
   coin_id: string;
   symbol: string;
@@ -194,6 +238,7 @@ export interface RiskBacktestResult {
   sensitivity: RiskBacktestSensitivity[];
   quality: RiskBacktestQuality;
   walk_forward: RiskBacktestWalkForward;
+  feature_model: RiskFeatureModelResult;
   recent_signals: RiskBacktestSignal[];
   methodology: string;
   calculated_at: string;

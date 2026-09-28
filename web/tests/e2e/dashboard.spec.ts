@@ -118,6 +118,25 @@ async function mockApi(page: Page) {
             recall_percent: 6.7, lift: 1.67,
           })),
         },
+        feature_model: {
+          status: "validated", model_name: "v0.4 标准化逻辑回归实验", target: "未来7日最大跌幅 ≥ 3%",
+          horizon_days: 7, lookback_days: 90, embargo_days: 7, total_holdout_points: 150,
+          event_days: 45, signal_count: 9, baseline_hit_rate_percent: 30, accuracy_percent: 72,
+          precision_percent: 55.6, recall_percent: 11.1, miss_rate_percent: 88.9, lift: 1.85,
+          promoted: true, verdict: "通过晋级门槛：留出期相对市场基准有稳定增益，可进入影子运行。",
+          feature_importance: [
+            { key: "drawdown_30d", label: "30日回撤", coefficient: 0.82, direction: "raises_risk" },
+            { key: "volatility_ratio", label: "短长波动率比", coefficient: 0.61, direction: "raises_risk" },
+            { key: "momentum_30d", label: "30日动量", coefficient: -0.45, direction: "lowers_risk" },
+          ],
+          folds: [1, 2, 3].map((fold) => ({
+            fold, probability_threshold_percent: 45 + fold * 5, training_points: 130 + fold * 50,
+            holdout_points: 50, holdout_start: 1_740_000_000 + fold * 10_000_000,
+            holdout_end: 1_750_000_000 + fold * 10_000_000, holdout_event_count: 15,
+            holdout_signal_count: 3, baseline_hit_rate_percent: 30, precision_percent: 55.6,
+            recall_percent: 11.1, lift: 1.85,
+          })),
+        },
         recent_signals: [], methodology: "E2E fixture", calculated_at: now,
       });
     }
@@ -161,7 +180,9 @@ test("shows base-rate lift and walk-forward validation", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "模型有效性" })).toBeVisible();
   await expect(page.getByText("1.94×", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Walk-forward 滚动验证" })).toBeVisible();
-  await expect(page.getByText("第 3 轮", { exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "第 3 轮", exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: "v0.4 特征模型实验" })).toBeVisible();
+  await expect(page.getByText("达到晋级门槛", { exact: true })).toBeVisible();
 });
 
 test("attaches a CSRF token before account registration", async ({ page }) => {

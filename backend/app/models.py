@@ -177,6 +177,50 @@ class RiskBacktestWalkForward(BaseModel):
     folds: list[RiskBacktestWalkForwardFold]
 
 
+class RiskFeatureImportance(BaseModel):
+    key: str
+    label: str
+    coefficient: float
+    direction: Literal["raises_risk", "lowers_risk"]
+
+
+class RiskFeatureModelFold(BaseModel):
+    fold: int
+    probability_threshold_percent: float
+    training_points: int
+    holdout_points: int
+    holdout_start: int
+    holdout_end: int
+    holdout_event_count: int
+    holdout_signal_count: int
+    baseline_hit_rate_percent: float
+    precision_percent: float
+    recall_percent: float
+    lift: float
+
+
+class RiskFeatureModelResult(BaseModel):
+    status: Literal["validated", "insufficient_data"]
+    model_name: str
+    target: str
+    horizon_days: int
+    lookback_days: int
+    embargo_days: int
+    total_holdout_points: int
+    event_days: int
+    signal_count: int
+    baseline_hit_rate_percent: float
+    accuracy_percent: float
+    precision_percent: float
+    recall_percent: float
+    miss_rate_percent: float
+    lift: float
+    promoted: bool
+    verdict: str
+    feature_importance: list[RiskFeatureImportance]
+    folds: list[RiskFeatureModelFold]
+
+
 class RiskBacktestResult(BaseModel):
     coin_id: str
     symbol: str
@@ -195,6 +239,7 @@ class RiskBacktestResult(BaseModel):
     sensitivity: list[RiskBacktestSensitivity]
     quality: RiskBacktestQuality
     walk_forward: RiskBacktestWalkForward
+    feature_model: RiskFeatureModelResult
     recent_signals: list[RiskBacktestSignal]
     methodology: str
     calculated_at: str
