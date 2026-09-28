@@ -166,9 +166,9 @@ async function mockApi(page: Page) {
           recommended: true,
           verdict: "波动率归一化同时改善 Lift 与 Brier Score，可进入跨资产复核。",
           experiments: [
-            { key: "fixed", label: "固定跌幅", target: "未来7日最大跌幅 ≥ 3%", status: "validated", total_holdout_points: 150, event_days: 45, signal_count: 9, baseline_hit_rate_percent: 30, precision_percent: 55.6, recall_percent: 11.1, lift: 1.85, brier_score: 0.2241, calibration_error_percent: 9.8, folds: [] },
-            { key: "volatility", label: "波动率归一化", target: "未来7日跌幅超过历史波动自适应阈值", status: "validated", total_holdout_points: 150, event_days: 36, signal_count: 8, baseline_hit_rate_percent: 24, precision_percent: 62.5, recall_percent: 13.9, lift: 2.6, brier_score: 0.1812, calibration_error_percent: 7.1, folds: [] },
-            { key: "quantile", label: "训练集最差25%", target: "未来7日跌幅进入训练集最差25%", status: "validated", total_holdout_points: 150, event_days: 38, signal_count: 7, baseline_hit_rate_percent: 25.3, precision_percent: 42.9, recall_percent: 7.9, lift: 1.69, brier_score: 0.2022, calibration_error_percent: 8.6, folds: [] },
+            { key: "fixed", label: "固定跌幅", target: "未来7日最大跌幅 ≥ 3%", status: "validated", total_holdout_points: 150, event_days: 45, signal_count: 9, baseline_hit_rate_percent: 30, precision_percent: 55.6, recall_percent: 11.1, lift: 1.85, brier_score: 0.2241, brier_skill_score: -0.067, calibration_error_percent: 9.8, precision_confidence_interval: { lower: 28.6, upper: 77.8, confidence_level_percent: 95, method: "14日循环区块Bootstrap", resamples: 500, block_days: 14 }, lift_confidence_interval: { lower: 0.92, upper: 2.68, confidence_level_percent: 95, method: "14日循环区块Bootstrap", resamples: 500, block_days: 14 }, brier_confidence_interval: { lower: 0.1901, upper: 0.2598, confidence_level_percent: 95, method: "14日循环区块Bootstrap", resamples: 500, block_days: 14 }, folds: [] },
+            { key: "volatility", label: "波动率归一化", target: "未来7日跌幅超过历史波动自适应阈值", status: "validated", total_holdout_points: 150, event_days: 36, signal_count: 8, baseline_hit_rate_percent: 24, precision_percent: 62.5, recall_percent: 13.9, lift: 2.6, brier_score: 0.1812, brier_skill_score: 0.007, calibration_error_percent: 7.1, precision_confidence_interval: { lower: 40, upper: 87.5, confidence_level_percent: 95, method: "14日循环区块Bootstrap", resamples: 500, block_days: 14 }, lift_confidence_interval: { lower: 1.18, upper: 3.92, confidence_level_percent: 95, method: "14日循环区块Bootstrap", resamples: 500, block_days: 14 }, brier_confidence_interval: { lower: 0.149, upper: 0.216, confidence_level_percent: 95, method: "14日循环区块Bootstrap", resamples: 500, block_days: 14 }, folds: [] },
+            { key: "quantile", label: "训练集最差25%", target: "未来7日跌幅进入训练集最差25%", status: "validated", total_holdout_points: 150, event_days: 38, signal_count: 7, baseline_hit_rate_percent: 25.3, precision_percent: 42.9, recall_percent: 7.9, lift: 1.69, brier_score: 0.2022, brier_skill_score: -0.070, calibration_error_percent: 8.6, precision_confidence_interval: { lower: 14.3, upper: 71.4, confidence_level_percent: 95, method: "14日循环区块Bootstrap", resamples: 500, block_days: 14 }, lift_confidence_interval: { lower: 0.51, upper: 2.9, confidence_level_percent: 95, method: "14日循环区块Bootstrap", resamples: 500, block_days: 14 }, brier_confidence_interval: { lower: 0.171, upper: 0.238, confidence_level_percent: 95, method: "14日循环区块Bootstrap", resamples: 500, block_days: 14 }, folds: [] },
           ],
         },
         recent_signals: [], methodology: "E2E fixture", calculated_at: now,
@@ -221,6 +221,7 @@ test("shows base-rate lift and walk-forward validation", async ({ page }) => {
   await expect(page.getByText("单资产候选通过", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "v0.5 标签与概率校准实验" })).toBeVisible();
   await expect(page.getByText("2.60× Lift", { exact: true })).toBeVisible();
+  await expect(page.getByText("1.18–3.92", { exact: true })).toBeVisible();
 });
 
 test("switches backtest assets from the cross-asset review", async ({ page }) => {

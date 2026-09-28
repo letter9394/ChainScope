@@ -2,8 +2,9 @@ import pytest
 
 from app.models import DerivativesSnapshot, HistoryPoint
 from app.services.risk import (
-    _classification_quality, _feature_model_validation, _fit_logistic_regression,
-    _label_study_validation, _market_regime, _predict_probability,
+    _block_bootstrap_confidence_intervals, _classification_quality,
+    _feature_model_validation, _fit_logistic_regression,
+    _brier_skill_score, _label_study_validation, _market_regime, _predict_probability,
     _probability_calibration, _risk_feature_vector,
     _walk_forward_validation, assess_risk, backtest_risk,
 )
@@ -263,6 +264,27 @@ def test_feature_model_does_not_use_first_holdout_prices_for_calibration() -> No
 def test_probability_calibration_reports_brier_and_ece() -> None:
     assert _probability_calibration([(0.0, 0), (1.0, 1)]) == (0.0, 0.0)
     assert _probability_calibration([(1.0, 0), (0.0, 1)]) == (1.0, 100.0)
+    assert _brier_skill_score([(0.0, 0), (1.0, 1)], 0.0) == 1.0
+    assert _brier_skill_score([(0.5, 0), (0.5, 1)], 0.25) == 0.0
+
+
+def test_block_bootstrap_confidence_intervals_are_deterministic() -> None:
+    rows = [
+        (0.8 if index % 4 == 0 else 0.2, int(index % 4 == 0), int(index % 10 == 0))
+        for index in range(140)
+    ]
+
+    first = _block_bootstrap_confidence_intervals(rows, resamples=100, seed=42)
+    second = _block_bootstrap_confidence_intervals(rows, resamples=100, seed=42)
+
+    assert first == second
+    assert all(interval is not None for interval in first)
+    for interval in first:
+        assert interval is not None
+        assert interval.lower <= interval.upper
+        assert interval.confidence_level_percent == 95
+        assert interval.resamples == 100
+        assert interval.block_days == 14
 
 
 def test_quantile_label_threshold_uses_training_period_only() -> None:

@@ -719,7 +719,7 @@ def _risk_backtest_cache_key(
     hit_threshold_percent: float,
 ) -> str:
     return (
-        f"risk-backtest:v5:{coin_id}:{days}:{window_days}:"
+        f"risk-backtest:v6:{coin_id}:{days}:{window_days}:"
         f"{risk_threshold}:{hit_threshold_percent:g}"
     )
 

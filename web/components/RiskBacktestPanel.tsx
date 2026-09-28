@@ -358,14 +358,18 @@ export function RiskBacktestPanel({
                   <p>{experiment.target}</p>
                   <dl>
                     <div><dt>精确率 / 基准</dt><dd>{experiment.precision_percent.toFixed(1)}% / {experiment.baseline_hit_rate_percent.toFixed(1)}%</dd></div>
+                    <div><dt>精确率 95% CI</dt><dd>{experiment.precision_confidence_interval ? `${experiment.precision_confidence_interval.lower.toFixed(1)}%–${experiment.precision_confidence_interval.upper.toFixed(1)}%` : "—"}</dd></div>
+                    <div><dt>Lift 95% CI</dt><dd>{experiment.lift_confidence_interval ? `${experiment.lift_confidence_interval.lower.toFixed(2)}–${experiment.lift_confidence_interval.upper.toFixed(2)}` : "—"}</dd></div>
                     <div><dt>Brier Score</dt><dd>{experiment.brier_score.toFixed(4)}</dd></div>
+                    <div><dt>Brier 95% CI</dt><dd>{experiment.brier_confidence_interval ? `${experiment.brier_confidence_interval.lower.toFixed(4)}–${experiment.brier_confidence_interval.upper.toFixed(4)}` : "—"}</dd></div>
+                    <div><dt>Brier Skill</dt><dd>{experiment.brier_skill_score > 0 ? "+" : ""}{experiment.brier_skill_score.toFixed(3)}</dd></div>
                     <div><dt>校准误差 ECE</dt><dd>{experiment.calibration_error_percent.toFixed(1)}%</dd></div>
                     <div><dt>留出期信号</dt><dd>{experiment.signal_count}</dd></div>
                   </dl>
                 </article>
               ))}
             </div>
-            <p className="label-study-note">Brier Score 与 ECE 越低越好；Lift 必须同时高于 1 和固定标签，且至少两轮留出期改善，才计为单资产通过。</p>
+            <p className="label-study-note">95% 区间使用 500 次、14 日循环区块 Bootstrap；不同标签的事件率不同，因此晋级比较使用相对各自自然发生率归一化的 Brier Skill。Lift 区间下界必须高于 1，且至少两轮留出期有效。</p>
           </>
         ) : (
           <p className="backtest-empty">{backtest.label_study.verdict}</p>

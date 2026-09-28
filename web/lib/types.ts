@@ -233,7 +233,17 @@ export interface RiskLabelExperimentFold {
   recall_percent: number;
   lift: number;
   brier_score: number;
+  brier_skill_score: number;
   calibration_error_percent: number;
+}
+
+export interface RiskConfidenceInterval {
+  lower: number;
+  upper: number;
+  confidence_level_percent: number;
+  method: string;
+  resamples: number;
+  block_days: number;
 }
 
 export interface RiskLabelExperimentResult {
@@ -249,7 +259,11 @@ export interface RiskLabelExperimentResult {
   recall_percent: number;
   lift: number;
   brier_score: number;
+  brier_skill_score: number;
   calibration_error_percent: number;
+  precision_confidence_interval: RiskConfidenceInterval | null;
+  lift_confidence_interval: RiskConfidenceInterval | null;
+  brier_confidence_interval: RiskConfidenceInterval | null;
   folds: RiskLabelExperimentFold[];
 }
 

@@ -234,7 +234,17 @@ class RiskLabelExperimentFold(BaseModel):
     recall_percent: float
     lift: float
     brier_score: float
+    brier_skill_score: float
     calibration_error_percent: float
+
+
+class RiskConfidenceInterval(BaseModel):
+    lower: float
+    upper: float
+    confidence_level_percent: float = 95.0
+    method: str
+    resamples: int
+    block_days: int
 
 
 class RiskLabelExperimentResult(BaseModel):
@@ -250,7 +260,11 @@ class RiskLabelExperimentResult(BaseModel):
     recall_percent: float
     lift: float
     brier_score: float
+    brier_skill_score: float
     calibration_error_percent: float
+    precision_confidence_interval: RiskConfidenceInterval | None = None
+    lift_confidence_interval: RiskConfidenceInterval | None = None
+    brier_confidence_interval: RiskConfidenceInterval | None = None
     folds: list[RiskLabelExperimentFold]
 
 

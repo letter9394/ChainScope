@@ -1,11 +1,13 @@
 import math
+import random
 import statistics
 from datetime import UTC, datetime
 
 from app.models import (
     DerivativesSnapshot, HistoryPoint, NewsArticle, RiskAssessment,
     RiskFeatureImportance, RiskFeatureModelFold, RiskFeatureModelResult,
-    RiskLabelExperimentFold, RiskLabelExperimentResult, RiskLabelStudyResult,
+    RiskConfidenceInterval, RiskLabelExperimentFold, RiskLabelExperimentResult,
+    RiskLabelStudyResult,
     RiskBacktestHorizon, RiskBacktestQuality, RiskBacktestRegime,
     RiskBacktestResult, RiskBacktestSensitivity, RiskBacktestSignal,
     RiskBacktestValidation, RiskBacktestWalkForward,
@@ -963,6 +965,86 @@ def _probability_calibration(
     return round(brier_score, 4), round(calibration_error * 100, 1)
 
 
+def _brier_skill_score(
+    probability_labels: list[tuple[float, int]],
+    brier_score: float,
+) -> float:
+    if not probability_labels:
+        return 0.0
+    event_rate = statistics.mean(label for _, label in probability_labels)
+    reference_brier = event_rate * (1 - event_rate)
+    if reference_brier <= 0:
+        return 0.0
+    return round(1 - brier_score / reference_brier, 3)
+
+
+def _block_bootstrap_confidence_intervals(
+    rows: list[tuple[float, int, int]],
+    *,
+    resamples: int = 500,
+    block_days: int = 14,
+    seed: int = 20260929,
+) -> tuple[
+    RiskConfidenceInterval | None,
+    RiskConfidenceInterval | None,
+    RiskConfidenceInterval | None,
+]:
+    if len(rows) < 30 or resamples < 1:
+        return None, None, None
+    sample_count = len(rows)
+    effective_block_days = min(max(1, block_days), sample_count)
+    generator = random.Random(seed)
+    precision_samples: list[float] = []
+    lift_samples: list[float] = []
+    brier_samples: list[float] = []
+
+    for _ in range(resamples):
+        sampled_rows: list[tuple[float, int, int]] = []
+        while len(sampled_rows) < sample_count:
+            start = generator.randrange(sample_count)
+            sampled_rows.extend(
+                rows[(start + offset) % sample_count]
+                for offset in range(effective_block_days)
+            )
+        sampled_rows = sampled_rows[:sample_count]
+        event_count = sum(event for _, event, _ in sampled_rows)
+        signal_count = sum(signal for _, _, signal in sampled_rows)
+        true_positive_count = sum(
+            event * signal for _, event, signal in sampled_rows
+        )
+        baseline_rate = event_count / sample_count * 100
+        precision = (
+            true_positive_count / signal_count * 100
+            if signal_count else 0.0
+        )
+        lift = precision / baseline_rate if baseline_rate else 0.0
+        brier_score = statistics.mean(
+            (probability - event) ** 2
+            for probability, event, _ in sampled_rows
+        )
+        precision_samples.append(precision)
+        lift_samples.append(lift)
+        brier_samples.append(brier_score)
+
+    method = f"{effective_block_days}日循环区块Bootstrap"
+
+    def interval(values: list[float], digits: int) -> RiskConfidenceInterval:
+        return RiskConfidenceInterval(
+            lower=round(_percentile(values, 0.025), digits),
+            upper=round(_percentile(values, 0.975), digits),
+            confidence_level_percent=95.0,
+            method=method,
+            resamples=resamples,
+            block_days=effective_block_days,
+        )
+
+    return (
+        interval(precision_samples, 1),
+        interval(lift_samples, 2),
+        interval(brier_samples, 4),
+    )
+
+
 def _empty_label_experiment(
     key: str,
     label: str,
@@ -981,6 +1063,7 @@ def _empty_label_experiment(
         recall_percent=0.0,
         lift=0.0,
         brier_score=0.0,
+        brier_skill_score=0.0,
         calibration_error_percent=0.0,
         folds=[],
     )
@@ -1111,6 +1194,7 @@ def _label_experiment_validation(
             horizon_days=horizon_days,
         )
         brier_score, calibration_error = _probability_calibration(probability_labels)
+        brier_skill_score = _brier_skill_score(probability_labels, brier_score)
         holdout_thresholds = [event_threshold(index) for index in holdout_indexes]
         folds.append(RiskLabelExperimentFold(
             fold=fold_index + 1,
@@ -1125,6 +1209,7 @@ def _label_experiment_validation(
             recall_percent=quality.recall_percent,
             lift=quality.lift,
             brier_score=brier_score,
+            brier_skill_score=brier_skill_score,
             calibration_error_percent=calibration_error,
         ))
         aggregate_scores.extend(holdout_probabilities)
@@ -1141,6 +1226,25 @@ def _label_experiment_validation(
     brier_score, calibration_error = _probability_calibration(
         aggregate_probability_labels,
     )
+    brier_skill_score = _brier_skill_score(
+        aggregate_probability_labels,
+        brier_score,
+    )
+    aggregate_signal_indexes = {index for index, _ in aggregate_signals}
+    bootstrap_rows = [
+        (
+            probability,
+            int(index in aggregate_event_indexes),
+            int(index in aggregate_signal_indexes),
+        )
+        for index, probability in sorted(aggregate_scores)
+    ]
+    precision_interval, lift_interval, brier_interval = (
+        _block_bootstrap_confidence_intervals(
+            bootstrap_rows,
+            seed={"fixed": 20260929, "volatility": 20260930, "quantile": 20261001}[mode],
+        )
+    )
     return RiskLabelExperimentResult(
         key=mode,
         label=label,
@@ -1154,7 +1258,11 @@ def _label_experiment_validation(
         recall_percent=aggregate_quality.recall_percent,
         lift=aggregate_quality.lift,
         brier_score=brier_score,
+        brier_skill_score=brier_skill_score,
         calibration_error_percent=calibration_error,
+        precision_confidence_interval=precision_interval,
+        lift_confidence_interval=lift_interval,
+        brier_confidence_interval=brier_interval,
         folds=folds,
     )
 
@@ -1206,7 +1314,9 @@ def _label_study_validation(
         successful_folds = sum(fold.lift > 1 for fold in candidate.folds)
         if (
             candidate.lift > max(1.0, fixed.lift)
-            and candidate.brier_score < fixed.brier_score
+            and candidate.lift_confidence_interval is not None
+            and candidate.lift_confidence_interval.lower > 1.0
+            and candidate.brier_skill_score > fixed.brier_skill_score
             and candidate.precision_percent > candidate.baseline_hit_rate_percent
             and candidate.signal_count >= 5
             and successful_folds >= 2
@@ -1221,9 +1331,9 @@ def _label_study_validation(
     )
     recommended = recommended_candidate is not None
     verdict = (
-        f"{recommended_candidate.label}同时改善 Lift 与 Brier Score，可进入跨资产复核。"
+        f"{recommended_candidate.label}同时改善 Lift 与 Brier Skill Score，且 Lift 的95%区间下界高于1，可进入跨资产复核。"
         if recommended_candidate
-        else "没有替代标签同时改善留出期区分能力与概率校准，继续保留固定3%标签。"
+        else "没有替代标签同时改善留出期区分能力、概率校准并通过95%置信区间检验，继续保留固定3%标签。"
     )
     return RiskLabelStudyResult(
         model_name=model_name,
@@ -1460,6 +1570,7 @@ def backtest_risk(
             "Walk-forward每轮只用此前数据选择阈值，并剔除紧邻留出期的预测窗口，防止标签穿越。"
             "v0.4特征模型仅在留出期通过晋级门槛后才允许替代现有规则模型。"
             "v0.5标签实验比较固定跌幅、波动率归一化与训练集分位数标签，并报告概率校准；"
+            "精确率、Lift与Brier Score使用14日区块Bootstrap估计95%置信区间；"
             "替代标签需通过至少两个资产验证才允许影响线上模型。"
         ),
         calculated_at=datetime.now(UTC).isoformat(),

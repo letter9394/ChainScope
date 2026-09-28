@@ -213,6 +213,12 @@ def test_risk_backtest_endpoint_returns_horizon_statistics() -> None:
         len(item["folds"]) == 3
         for item in body["label_study"]["experiments"]
     )
+    assert all(
+        item["precision_confidence_interval"]["resamples"] == 500
+        and item["lift_confidence_interval"]["block_days"] == 14
+        and item["brier_confidence_interval"]["confidence_level_percent"] == 95
+        for item in body["label_study"]["experiments"]
+    )
 
 
 def test_risk_backtest_endpoint_caches_identical_model_evaluations(monkeypatch) -> None:
