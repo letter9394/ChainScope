@@ -205,6 +205,14 @@ def test_risk_backtest_endpoint_returns_horizon_statistics() -> None:
     assert body["feature_model"]["status"] == "validated"
     assert len(body["feature_model"]["folds"]) == 3
     assert len(body["feature_model"]["feature_importance"]) == 10
+    assert body["label_study"]["status"] == "validated"
+    assert [item["key"] for item in body["label_study"]["experiments"]] == [
+        "fixed", "volatility", "quantile",
+    ]
+    assert all(
+        len(item["folds"]) == 3
+        for item in body["label_study"]["experiments"]
+    )
 
 
 def test_risk_backtest_endpoint_caches_identical_model_evaluations(monkeypatch) -> None:
@@ -301,6 +309,12 @@ def test_risk_backtest_portfolio_enforces_cross_asset_promotion_gate() -> None:
     assert body["passing_assets"] == sum(asset["passed"] for asset in body["assets"])
     assert body["promoted"] is (body["passing_assets"] >= 2)
     assert body["available_assets"] == 3
+    assert body["label_study_passing_assets"] == sum(
+        asset["label_improved"] for asset in body["assets"]
+    )
+    assert body["label_study_recommended"] is (
+        body["label_study_passing_assets"] >= 2
+    )
 
 
 def test_risk_backtest_endpoint_rejects_unknown_coin() -> None:

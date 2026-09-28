@@ -88,6 +88,10 @@ export function RiskBacktestPanel({
               <strong>{portfolio.promoted ? "跨资产达到晋级门槛" : "跨资产暂不晋级"}</strong>
               <span>{portfolio.verdict}</span>
             </div>
+            <div className={`feature-verdict ${portfolio.label_study_recommended ? "promoted" : "rejected"}`}>
+              <strong>{portfolio.label_study_recommended ? "v0.5 标签可进入影子运行" : "v0.5 标签保持实验状态"}</strong>
+              <span>{portfolio.label_study_verdict}</span>
+            </div>
             <div className="backtest-portfolio-grid">
               {portfolio.assets.map((asset) => {
                 const available = asset.status === "validated";
@@ -330,6 +334,41 @@ export function RiskBacktestPanel({
           </>
         ) : (
           <p className="backtest-empty">{backtest.feature_model.verdict}</p>
+        )}
+      </section>
+
+      <section className="backtest-label-study">
+        <div className="backtest-subheading">
+          <h3>v0.5 标签与概率校准实验</h3>
+          <span>同一特征、同一滚动留出期，只比较事件定义</span>
+        </div>
+        {backtest.label_study.status === "validated" ? (
+          <>
+            <div className={`feature-verdict ${backtest.label_study.recommended ? "promoted" : "rejected"}`}>
+              <strong>{backtest.label_study.recommended ? "单资产发现更优标签" : "固定标签仍是基准"}</strong>
+              <span>{backtest.label_study.verdict}</span>
+            </div>
+            <div className="label-study-grid">
+              {backtest.label_study.experiments.map((experiment) => (
+                <article
+                  key={experiment.key}
+                  className={backtest.label_study.recommended_key === experiment.key ? "winner" : ""}
+                >
+                  <div><span>{experiment.label}</span><b>{experiment.lift.toFixed(2)}× Lift</b></div>
+                  <p>{experiment.target}</p>
+                  <dl>
+                    <div><dt>精确率 / 基准</dt><dd>{experiment.precision_percent.toFixed(1)}% / {experiment.baseline_hit_rate_percent.toFixed(1)}%</dd></div>
+                    <div><dt>Brier Score</dt><dd>{experiment.brier_score.toFixed(4)}</dd></div>
+                    <div><dt>校准误差 ECE</dt><dd>{experiment.calibration_error_percent.toFixed(1)}%</dd></div>
+                    <div><dt>留出期信号</dt><dd>{experiment.signal_count}</dd></div>
+                  </dl>
+                </article>
+              ))}
+            </div>
+            <p className="label-study-note">Brier Score 与 ECE 越低越好；Lift 必须同时高于 1 和固定标签，且至少两轮留出期改善，才计为单资产通过。</p>
+          </>
+        ) : (
+          <p className="backtest-empty">{backtest.label_study.verdict}</p>
         )}
       </section>
 

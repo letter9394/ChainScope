@@ -87,10 +87,13 @@ async function mockApi(page: Page) {
         available_assets: 3,
         promoted: false,
         verdict: "跨资产门槛未通过：仅 1 个资产达标，至少需要 2 个。",
+        label_study_passing_assets: 1,
+        label_study_recommended: false,
+        label_study_verdict: "标签替换门槛未通过：仅 1 个资产独立改善，至少需要 2 个；线上标签保持不变。",
         assets: [
-          { coin_id: "bitcoin", symbol: "BTC", status: "validated", baseline_hit_rate_percent: 30, precision_percent: 55.6, recall_percent: 11.1, lift: 1.85, signal_count: 9, passed: true },
-          { coin_id: "ethereum", symbol: "ETH", status: "validated", baseline_hit_rate_percent: 36, precision_percent: 32, recall_percent: 8, lift: 0.89, signal_count: 8, passed: false },
-          { coin_id: "solana", symbol: "SOL", status: "validated", baseline_hit_rate_percent: 42, precision_percent: 38, recall_percent: 6, lift: 0.9, signal_count: 6, passed: false },
+          { coin_id: "bitcoin", symbol: "BTC", status: "validated", baseline_hit_rate_percent: 30, precision_percent: 55.6, recall_percent: 11.1, lift: 1.85, signal_count: 9, passed: true, recommended_label: "volatility", label_improved: true },
+          { coin_id: "ethereum", symbol: "ETH", status: "validated", baseline_hit_rate_percent: 36, precision_percent: 32, recall_percent: 8, lift: 0.89, signal_count: 8, passed: false, recommended_label: null, label_improved: false },
+          { coin_id: "solana", symbol: "SOL", status: "validated", baseline_hit_rate_percent: 42, precision_percent: 38, recall_percent: 6, lift: 0.9, signal_count: 6, passed: false, recommended_label: null, label_improved: false },
         ],
         calculated_at: now,
       });
@@ -156,6 +159,18 @@ async function mockApi(page: Page) {
             recall_percent: 11.1, lift: 1.85,
           })),
         },
+        label_study: {
+          model_name: "v0.5 标签与概率校准实验",
+          status: "validated",
+          recommended_key: "volatility",
+          recommended: true,
+          verdict: "波动率归一化同时改善 Lift 与 Brier Score，可进入跨资产复核。",
+          experiments: [
+            { key: "fixed", label: "固定跌幅", target: "未来7日最大跌幅 ≥ 3%", status: "validated", total_holdout_points: 150, event_days: 45, signal_count: 9, baseline_hit_rate_percent: 30, precision_percent: 55.6, recall_percent: 11.1, lift: 1.85, brier_score: 0.2241, calibration_error_percent: 9.8, folds: [] },
+            { key: "volatility", label: "波动率归一化", target: "未来7日跌幅超过历史波动自适应阈值", status: "validated", total_holdout_points: 150, event_days: 36, signal_count: 8, baseline_hit_rate_percent: 24, precision_percent: 62.5, recall_percent: 13.9, lift: 2.6, brier_score: 0.1812, calibration_error_percent: 7.1, folds: [] },
+            { key: "quantile", label: "训练集最差25%", target: "未来7日跌幅进入训练集最差25%", status: "validated", total_holdout_points: 150, event_days: 38, signal_count: 7, baseline_hit_rate_percent: 25.3, precision_percent: 42.9, recall_percent: 7.9, lift: 1.69, brier_score: 0.2022, calibration_error_percent: 8.6, folds: [] },
+          ],
+        },
         recent_signals: [], methodology: "E2E fixture", calculated_at: now,
       });
     }
@@ -204,6 +219,8 @@ test("shows base-rate lift and walk-forward validation", async ({ page }) => {
   await expect(page.getByRole("cell", { name: "第 3 轮", exact: true }).first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "v0.4 特征模型实验" })).toBeVisible();
   await expect(page.getByText("单资产候选通过", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "v0.5 标签与概率校准实验" })).toBeVisible();
+  await expect(page.getByText("2.60× Lift", { exact: true })).toBeVisible();
 });
 
 test("switches backtest assets from the cross-asset review", async ({ page }) => {

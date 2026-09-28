@@ -719,7 +719,7 @@ def _risk_backtest_cache_key(
     hit_threshold_percent: float,
 ) -> str:
     return (
-        f"risk-backtest:v4:{coin_id}:{days}:{window_days}:"
+        f"risk-backtest:v5:{coin_id}:{days}:{window_days}:"
         f"{risk_threshold}:{hit_threshold_percent:g}"
     )
 
@@ -847,6 +847,7 @@ async def risk_backtest_portfolio(
         result, cache_hit = evaluation
         all_cache_hits = all_cache_hits and cache_hit
         feature_model = result.feature_model
+        label_study = result.label_study
         assets.append(
             RiskBacktestPortfolioAsset(
                 coin_id=coin_id,
@@ -858,6 +859,8 @@ async def risk_backtest_portfolio(
                 lift=feature_model.lift,
                 signal_count=feature_model.signal_count,
                 passed=feature_model.promoted,
+                recommended_label=label_study.recommended_key,
+                label_improved=label_study.recommended,
             )
         )
 
@@ -865,11 +868,21 @@ async def risk_backtest_portfolio(
     passing_assets = sum(asset.passed for asset in assets)
     available_assets = sum(asset.status == "validated" for asset in assets)
     promoted = passing_assets >= required_passing_assets
+    label_study_passing_assets = sum(asset.label_improved for asset in assets)
+    label_study_recommended = label_study_passing_assets >= required_passing_assets
     response.headers["X-ChainScope-Cache"] = "hit" if all_cache_hits else "miss"
     verdict = (
         f"跨资产门槛通过：{passing_assets} 个资产通过完整留出期验证，可进入影子运行。"
         if promoted
         else f"跨资产门槛未通过：仅 {passing_assets} 个资产达标，至少需要 {required_passing_assets} 个。"
+    )
+    label_study_verdict = (
+        f"标签替换门槛通过：{label_study_passing_assets} 个资产独立改善，可进入影子运行。"
+        if label_study_recommended
+        else (
+            f"标签替换门槛未通过：仅 {label_study_passing_assets} 个资产独立改善，"
+            f"至少需要 {required_passing_assets} 个；线上标签保持不变。"
+        )
     )
     return RiskBacktestPortfolioResult(
         model_name="v0.4 标准化逻辑回归实验",
@@ -879,6 +892,9 @@ async def risk_backtest_portfolio(
         available_assets=available_assets,
         promoted=promoted,
         verdict=verdict,
+        label_study_passing_assets=label_study_passing_assets,
+        label_study_recommended=label_study_recommended,
+        label_study_verdict=label_study_verdict,
         assets=assets,
         calculated_at=utc_iso(),
     )

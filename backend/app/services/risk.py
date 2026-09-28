@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from app.models import (
     DerivativesSnapshot, HistoryPoint, NewsArticle, RiskAssessment,
     RiskFeatureImportance, RiskFeatureModelFold, RiskFeatureModelResult,
+    RiskLabelExperimentFold, RiskLabelExperimentResult, RiskLabelStudyResult,
     RiskBacktestHorizon, RiskBacktestQuality, RiskBacktestRegime,
     RiskBacktestResult, RiskBacktestSensitivity, RiskBacktestSignal,
     RiskBacktestValidation, RiskBacktestWalkForward,
@@ -381,6 +382,23 @@ def _classification_quality(
         for index in evaluated_indexes
         if _future_max_drawdown(history, index, horizon_days) >= hit_threshold_percent
     }
+    return _classification_quality_from_events(
+        evaluated_scores,
+        signal_points,
+        event_indexes=event_indexes,
+        horizon_days=horizon_days,
+    )
+
+
+def _classification_quality_from_events(
+    evaluated_scores: list[tuple[int, int | float]],
+    signal_points: list[tuple[int, int | float]],
+    *,
+    event_indexes: set[int],
+    horizon_days: int,
+) -> RiskBacktestQuality:
+    evaluated_indexes = {index for index, _ in evaluated_scores}
+    event_indexes = event_indexes & evaluated_indexes
     signal_indexes = {
         index
         for index, _ in signal_points
@@ -884,6 +902,339 @@ def _feature_model_validation(
     )
 
 
+def _percentile(values: list[float], quantile: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    position = (len(ordered) - 1) * quantile
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return ordered[lower]
+    weight = position - lower
+    return ordered[lower] * (1 - weight) + ordered[upper] * weight
+
+
+def _volatility_event_threshold(
+    history: list[HistoryPoint],
+    index: int,
+    horizon_days: int,
+) -> float:
+    start = max(0, index - 30)
+    returns = _daily_returns([point.price for point in history[start:index + 1]])
+    daily_volatility_percent = (
+        statistics.stdev(returns) * 100
+        if len(returns) >= 2 else 0.0
+    )
+    return max(1.0, daily_volatility_percent * math.sqrt(horizon_days) * 1.25)
+
+
+def _probability_calibration(
+    probability_labels: list[tuple[float, int]],
+    *,
+    bin_count: int = 5,
+) -> tuple[float, float]:
+    if not probability_labels:
+        return 0.0, 0.0
+    brier_score = statistics.mean(
+        (probability - label) ** 2
+        for probability, label in probability_labels
+    )
+    calibration_error = 0.0
+    for bin_index in range(bin_count):
+        lower = bin_index / bin_count
+        upper = (bin_index + 1) / bin_count
+        values = [
+            (probability, label)
+            for probability, label in probability_labels
+            if (
+                lower <= probability < upper
+                or (bin_index == bin_count - 1 and probability == 1)
+            )
+        ]
+        if not values:
+            continue
+        average_probability = statistics.mean(probability for probability, _ in values)
+        observed_rate = statistics.mean(label for _, label in values)
+        calibration_error += (
+            len(values) / len(probability_labels)
+            * abs(average_probability - observed_rate)
+        )
+    return round(brier_score, 4), round(calibration_error * 100, 1)
+
+
+def _empty_label_experiment(
+    key: str,
+    label: str,
+    target: str,
+) -> RiskLabelExperimentResult:
+    return RiskLabelExperimentResult(
+        key=key,
+        label=label,
+        target=target,
+        status="insufficient_data",
+        total_holdout_points=0,
+        event_days=0,
+        signal_count=0,
+        baseline_hit_rate_percent=0.0,
+        precision_percent=0.0,
+        recall_percent=0.0,
+        lift=0.0,
+        brier_score=0.0,
+        calibration_error_percent=0.0,
+        folds=[],
+    )
+
+
+def _label_experiment_validation(
+    history: list[HistoryPoint],
+    samples: list[tuple[int, list[float]]],
+    *,
+    mode: str,
+    label: str,
+    target: str,
+    horizon_days: int,
+    hit_threshold_percent: float,
+    fold_count: int = 3,
+) -> RiskLabelExperimentResult:
+    probability_thresholds = [0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70]
+    initial_training_points = len(samples) // 2
+    remaining_points = len(samples) - initial_training_points
+    fold_size = max(1, remaining_points // fold_count)
+    folds: list[RiskLabelExperimentFold] = []
+    aggregate_scores: list[tuple[int, float]] = []
+    aggregate_signals: list[tuple[int, float]] = []
+    aggregate_event_indexes: set[int] = set()
+    aggregate_probability_labels: list[tuple[float, int]] = []
+
+    for fold_index in range(fold_count):
+        holdout_start_position = initial_training_points + fold_index * fold_size
+        holdout_end_position = (
+            len(samples)
+            if fold_index == fold_count - 1
+            else min(len(samples), holdout_start_position + fold_size)
+        )
+        if holdout_start_position >= holdout_end_position:
+            continue
+        calibration_end = max(1, holdout_start_position - horizon_days)
+        training_samples = samples[:calibration_end]
+        training_drawdowns = [
+            _future_max_drawdown(history, index, horizon_days)
+            for index, _ in training_samples
+        ]
+        quantile_threshold = (
+            max(0.01, _percentile(training_drawdowns, 0.75))
+            if mode == "quantile"
+            else hit_threshold_percent
+        )
+
+        def event_threshold(index: int) -> float:
+            if mode == "volatility":
+                return _volatility_event_threshold(history, index, horizon_days)
+            return quantile_threshold
+
+        training_event_indexes = {
+            index
+            for index, _ in training_samples
+            if _future_max_drawdown(history, index, horizon_days) >= event_threshold(index)
+        }
+        training_rows = [row for _, row in training_samples]
+        training_labels = [
+            int(index in training_event_indexes)
+            for index, _ in training_samples
+        ]
+        weights, intercept, means, scales = _fit_logistic_regression(
+            training_rows,
+            training_labels,
+        )
+        training_probabilities = [
+            (index, _predict_probability(row, weights, intercept, means, scales))
+            for index, row in training_samples
+        ]
+        minimum_training_signals = max(5, round(len(training_samples) / 100))
+        candidates: list[tuple[tuple[float, float, int, float], float]] = []
+        for probability_threshold in probability_thresholds:
+            training_signals = _probability_crossings(
+                training_probabilities,
+                probability_threshold,
+            )
+            quality = _classification_quality_from_events(
+                training_probabilities,
+                training_signals,
+                event_indexes=training_event_indexes,
+                horizon_days=horizon_days,
+            )
+            if quality.signal_count < minimum_training_signals:
+                continue
+            candidates.append((
+                (
+                    quality.lift,
+                    quality.precision_percent,
+                    quality.signal_count,
+                    -abs(probability_threshold - 0.5),
+                ),
+                probability_threshold,
+            ))
+        selected_probability_threshold = max(candidates)[1] if candidates else 0.5
+
+        prediction_samples = samples[holdout_start_position - 1:holdout_end_position]
+        prediction_probabilities = [
+            (index, _predict_probability(row, weights, intercept, means, scales))
+            for index, row in prediction_samples
+        ]
+        holdout_samples = samples[holdout_start_position:holdout_end_position]
+        holdout_indexes = {index for index, _ in holdout_samples}
+        holdout_probabilities = [
+            point for point in prediction_probabilities if point[0] in holdout_indexes
+        ]
+        holdout_signals = [
+            point
+            for point in _probability_crossings(
+                prediction_probabilities,
+                selected_probability_threshold,
+            )
+            if point[0] in holdout_indexes
+        ]
+        holdout_event_indexes = {
+            index
+            for index in holdout_indexes
+            if _future_max_drawdown(history, index, horizon_days) >= event_threshold(index)
+        }
+        probability_labels = [
+            (probability, int(index in holdout_event_indexes))
+            for index, probability in holdout_probabilities
+        ]
+        quality = _classification_quality_from_events(
+            holdout_probabilities,
+            holdout_signals,
+            event_indexes=holdout_event_indexes,
+            horizon_days=horizon_days,
+        )
+        brier_score, calibration_error = _probability_calibration(probability_labels)
+        holdout_thresholds = [event_threshold(index) for index in holdout_indexes]
+        folds.append(RiskLabelExperimentFold(
+            fold=fold_index + 1,
+            event_threshold_percent=round(statistics.mean(holdout_thresholds), 2),
+            probability_threshold_percent=round(selected_probability_threshold * 100, 1),
+            training_points=len(training_samples),
+            holdout_points=len(holdout_samples),
+            holdout_event_count=quality.event_days,
+            holdout_signal_count=quality.signal_count,
+            baseline_hit_rate_percent=quality.baseline_hit_rate_percent,
+            precision_percent=quality.precision_percent,
+            recall_percent=quality.recall_percent,
+            lift=quality.lift,
+            brier_score=brier_score,
+            calibration_error_percent=calibration_error,
+        ))
+        aggregate_scores.extend(holdout_probabilities)
+        aggregate_signals.extend(holdout_signals)
+        aggregate_event_indexes.update(holdout_event_indexes)
+        aggregate_probability_labels.extend(probability_labels)
+
+    aggregate_quality = _classification_quality_from_events(
+        aggregate_scores,
+        aggregate_signals,
+        event_indexes=aggregate_event_indexes,
+        horizon_days=horizon_days,
+    )
+    brier_score, calibration_error = _probability_calibration(
+        aggregate_probability_labels,
+    )
+    return RiskLabelExperimentResult(
+        key=mode,
+        label=label,
+        target=target,
+        status="validated",
+        total_holdout_points=aggregate_quality.evaluated_days,
+        event_days=aggregate_quality.event_days,
+        signal_count=aggregate_quality.signal_count,
+        baseline_hit_rate_percent=aggregate_quality.baseline_hit_rate_percent,
+        precision_percent=aggregate_quality.precision_percent,
+        recall_percent=aggregate_quality.recall_percent,
+        lift=aggregate_quality.lift,
+        brier_score=brier_score,
+        calibration_error_percent=calibration_error,
+        folds=folds,
+    )
+
+
+def _label_study_validation(
+    history: list[HistoryPoint],
+    *,
+    last_signal_index: int,
+    horizon_days: int,
+    hit_threshold_percent: float,
+) -> RiskLabelStudyResult:
+    model_name = "v0.5 标签与概率校准实验"
+    definitions = (
+        ("fixed", "固定跌幅", f"未来{horizon_days}日最大跌幅 ≥ {hit_threshold_percent:g}%"),
+        ("volatility", "波动率归一化", f"未来{horizon_days}日跌幅超过历史波动自适应阈值"),
+        ("quantile", "训练集最差25%", f"未来{horizon_days}日跌幅进入训练集最差25%"),
+    )
+    samples = [
+        (index, _risk_feature_vector(history, index))
+        for index in range(90, last_signal_index + 1)
+    ]
+    if len(samples) < 180:
+        return RiskLabelStudyResult(
+            model_name=model_name,
+            status="insufficient_data",
+            recommended=False,
+            verdict="历史样本不足，暂不能进行三种标签的滚动留出期比较。",
+            experiments=[
+                _empty_label_experiment(key, label, target)
+                for key, label, target in definitions
+            ],
+        )
+
+    experiments = [
+        _label_experiment_validation(
+            history,
+            samples,
+            mode=key,
+            label=label,
+            target=target,
+            horizon_days=horizon_days,
+            hit_threshold_percent=hit_threshold_percent,
+        )
+        for key, label, target in definitions
+    ]
+    fixed = experiments[0]
+    viable_candidates = []
+    for candidate in experiments[1:]:
+        successful_folds = sum(fold.lift > 1 for fold in candidate.folds)
+        if (
+            candidate.lift > max(1.0, fixed.lift)
+            and candidate.brier_score < fixed.brier_score
+            and candidate.precision_percent > candidate.baseline_hit_rate_percent
+            and candidate.signal_count >= 5
+            and successful_folds >= 2
+        ):
+            viable_candidates.append(candidate)
+    recommended_candidate = (
+        max(
+            viable_candidates,
+            key=lambda item: (item.lift, -item.brier_score, item.precision_percent),
+        )
+        if viable_candidates else None
+    )
+    recommended = recommended_candidate is not None
+    verdict = (
+        f"{recommended_candidate.label}同时改善 Lift 与 Brier Score，可进入跨资产复核。"
+        if recommended_candidate
+        else "没有替代标签同时改善留出期区分能力与概率校准，继续保留固定3%标签。"
+    )
+    return RiskLabelStudyResult(
+        model_name=model_name,
+        status="validated",
+        recommended_key=recommended_candidate.key if recommended_candidate else None,
+        recommended=recommended,
+        verdict=verdict,
+        experiments=experiments,
+    )
+
+
 def _market_regime(
     history: list[HistoryPoint],
     index: int,
@@ -1074,6 +1425,12 @@ def backtest_risk(
         horizon_days=comparison_horizon,
         hit_threshold_percent=hit_threshold_percent,
     )
+    label_study = _label_study_validation(
+        clean_history,
+        last_signal_index=last_signal_index,
+        horizon_days=comparison_horizon,
+        hit_threshold_percent=hit_threshold_percent,
+    )
 
     return RiskBacktestResult(
         coin_id=coin_id,
@@ -1094,6 +1451,7 @@ def backtest_risk(
         quality=quality,
         walk_forward=walk_forward,
         feature_model=feature_model,
+        label_study=label_study,
         recent_signals=signals[-5:][::-1],
         methodology=(
             f"使用{window_days}日滚动基础风险分；仅记录风险分首次上穿阈值的日期。"
@@ -1101,6 +1459,8 @@ def backtest_risk(
             "市场阶段仅使用信号日前90日价格判定；Lift比较信号命中率与任意评估日的自然跌幅概率。"
             "Walk-forward每轮只用此前数据选择阈值，并剔除紧邻留出期的预测窗口，防止标签穿越。"
             "v0.4特征模型仅在留出期通过晋级门槛后才允许替代现有规则模型。"
+            "v0.5标签实验比较固定跌幅、波动率归一化与训练集分位数标签，并报告概率校准；"
+            "替代标签需通过至少两个资产验证才允许影响线上模型。"
         ),
         calculated_at=datetime.now(UTC).isoformat(),
     )

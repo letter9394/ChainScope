@@ -3,7 +3,8 @@ import pytest
 from app.models import DerivativesSnapshot, HistoryPoint
 from app.services.risk import (
     _classification_quality, _feature_model_validation, _fit_logistic_regression,
-    _market_regime, _predict_probability, _risk_feature_vector,
+    _label_study_validation, _market_regime, _predict_probability,
+    _probability_calibration, _risk_feature_vector,
     _walk_forward_validation, assess_risk, backtest_risk,
 )
 
@@ -256,4 +257,45 @@ def test_feature_model_does_not_use_first_holdout_prices_for_calibration() -> No
     assert (
         original_result.folds[0].probability_threshold_percent
         == changed_result.folds[0].probability_threshold_percent
+    )
+
+
+def test_probability_calibration_reports_brier_and_ece() -> None:
+    assert _probability_calibration([(0.0, 0), (1.0, 1)]) == (0.0, 0.0)
+    assert _probability_calibration([(1.0, 0), (0.0, 1)]) == (1.0, 100.0)
+
+
+def test_quantile_label_threshold_uses_training_period_only() -> None:
+    base_prices = [100 + index * 0.05 + (index % 20) - 10 for index in range(400)]
+    changed_prices = base_prices[:241] + [60 if index % 2 else 180 for index in range(159)]
+    original = points(base_prices, [1_000 + index for index in range(400)])
+    changed = points(changed_prices, [1_000 + index for index in range(400)])
+
+    original_result = _label_study_validation(
+        original,
+        last_signal_index=392,
+        horizon_days=7,
+        hit_threshold_percent=3,
+    )
+    changed_result = _label_study_validation(
+        changed,
+        last_signal_index=392,
+        horizon_days=7,
+        hit_threshold_percent=3,
+    )
+    original_quantile = next(
+        item for item in original_result.experiments if item.key == "quantile"
+    )
+    changed_quantile = next(
+        item for item in changed_result.experiments if item.key == "quantile"
+    )
+
+    assert original_result.status == "validated"
+    assert (
+        original_quantile.folds[0].event_threshold_percent
+        == changed_quantile.folds[0].event_threshold_percent
+    )
+    assert (
+        original_quantile.folds[0].probability_threshold_percent
+        == changed_quantile.folds[0].probability_threshold_percent
     )

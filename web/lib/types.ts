@@ -220,6 +220,48 @@ export interface RiskFeatureModelResult {
   folds: RiskFeatureModelFold[];
 }
 
+export interface RiskLabelExperimentFold {
+  fold: number;
+  event_threshold_percent: number;
+  probability_threshold_percent: number;
+  training_points: number;
+  holdout_points: number;
+  holdout_event_count: number;
+  holdout_signal_count: number;
+  baseline_hit_rate_percent: number;
+  precision_percent: number;
+  recall_percent: number;
+  lift: number;
+  brier_score: number;
+  calibration_error_percent: number;
+}
+
+export interface RiskLabelExperimentResult {
+  key: "fixed" | "volatility" | "quantile";
+  label: string;
+  target: string;
+  status: "validated" | "insufficient_data";
+  total_holdout_points: number;
+  event_days: number;
+  signal_count: number;
+  baseline_hit_rate_percent: number;
+  precision_percent: number;
+  recall_percent: number;
+  lift: number;
+  brier_score: number;
+  calibration_error_percent: number;
+  folds: RiskLabelExperimentFold[];
+}
+
+export interface RiskLabelStudyResult {
+  model_name: string;
+  status: "validated" | "insufficient_data";
+  recommended_key: "volatility" | "quantile" | null;
+  recommended: boolean;
+  verdict: string;
+  experiments: RiskLabelExperimentResult[];
+}
+
 export interface RiskBacktestResult {
   coin_id: string;
   symbol: string;
@@ -239,6 +281,7 @@ export interface RiskBacktestResult {
   quality: RiskBacktestQuality;
   walk_forward: RiskBacktestWalkForward;
   feature_model: RiskFeatureModelResult;
+  label_study: RiskLabelStudyResult;
   recent_signals: RiskBacktestSignal[];
   methodology: string;
   calculated_at: string;
@@ -254,6 +297,8 @@ export interface RiskBacktestPortfolioAsset {
   lift: number | null;
   signal_count: number;
   passed: boolean;
+  recommended_label: "volatility" | "quantile" | null;
+  label_improved: boolean;
 }
 
 export interface RiskBacktestPortfolioResult {
@@ -264,6 +309,9 @@ export interface RiskBacktestPortfolioResult {
   available_assets: number;
   promoted: boolean;
   verdict: string;
+  label_study_passing_assets: number;
+  label_study_recommended: boolean;
+  label_study_verdict: string;
   assets: RiskBacktestPortfolioAsset[];
   calculated_at: string;
 }

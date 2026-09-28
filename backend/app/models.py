@@ -221,6 +221,48 @@ class RiskFeatureModelResult(BaseModel):
     folds: list[RiskFeatureModelFold]
 
 
+class RiskLabelExperimentFold(BaseModel):
+    fold: int
+    event_threshold_percent: float
+    probability_threshold_percent: float
+    training_points: int
+    holdout_points: int
+    holdout_event_count: int
+    holdout_signal_count: int
+    baseline_hit_rate_percent: float
+    precision_percent: float
+    recall_percent: float
+    lift: float
+    brier_score: float
+    calibration_error_percent: float
+
+
+class RiskLabelExperimentResult(BaseModel):
+    key: Literal["fixed", "volatility", "quantile"]
+    label: str
+    target: str
+    status: Literal["validated", "insufficient_data"]
+    total_holdout_points: int
+    event_days: int
+    signal_count: int
+    baseline_hit_rate_percent: float
+    precision_percent: float
+    recall_percent: float
+    lift: float
+    brier_score: float
+    calibration_error_percent: float
+    folds: list[RiskLabelExperimentFold]
+
+
+class RiskLabelStudyResult(BaseModel):
+    model_name: str
+    status: Literal["validated", "insufficient_data"]
+    recommended_key: Literal["volatility", "quantile"] | None = None
+    recommended: bool
+    verdict: str
+    experiments: list[RiskLabelExperimentResult]
+
+
 class RiskBacktestResult(BaseModel):
     coin_id: str
     symbol: str
@@ -240,6 +282,7 @@ class RiskBacktestResult(BaseModel):
     quality: RiskBacktestQuality
     walk_forward: RiskBacktestWalkForward
     feature_model: RiskFeatureModelResult
+    label_study: RiskLabelStudyResult
     recent_signals: list[RiskBacktestSignal]
     methodology: str
     calculated_at: str
@@ -255,6 +298,8 @@ class RiskBacktestPortfolioAsset(BaseModel):
     lift: float | None = None
     signal_count: int = 0
     passed: bool = False
+    recommended_label: Literal["volatility", "quantile"] | None = None
+    label_improved: bool = False
 
 
 class RiskBacktestPortfolioResult(BaseModel):
@@ -265,6 +310,9 @@ class RiskBacktestPortfolioResult(BaseModel):
     available_assets: int
     promoted: bool
     verdict: str
+    label_study_passing_assets: int
+    label_study_recommended: bool
+    label_study_verdict: str
     assets: list[RiskBacktestPortfolioAsset]
     calculated_at: str
 
