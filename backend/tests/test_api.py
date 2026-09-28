@@ -239,12 +239,17 @@ async def test_risk_backtest_prewarm_populates_the_default_cache(monkeypatch) ->
     monkeypatch.setattr("app.main.CoinGeckoClient", lambda _: FakeMarketClient())
     try:
         await _prewarm_default_risk_backtest(settings)
-        cached = cache.get(_risk_backtest_cache_key("bitcoin", 1095, 30, 60, 3.0))
+        cached = {
+            coin_id: cache.get(_risk_backtest_cache_key(coin_id, 1095, 30, 60, 3.0))
+            for coin_id in ("bitcoin", "ethereum", "solana")
+        }
     finally:
         cache.clear()
 
-    assert cached is not None
-    assert cached.symbol == "BTC"
+    assert all(result is not None for result in cached.values())
+    assert cached["bitcoin"].symbol == "BTC"
+    assert cached["ethereum"].symbol == "ETH"
+    assert cached["solana"].symbol == "SOL"
 
 
 @pytest.mark.asyncio
@@ -280,6 +285,22 @@ async def test_risk_backtest_coalesces_simultaneous_identical_requests() -> None
     assert market_client.history_calls == 1
     assert first[0] == second[0]
     assert sorted((first[1], second[1])) == [False, True]
+
+
+def test_risk_backtest_portfolio_enforces_cross_asset_promotion_gate() -> None:
+    cache.clear()
+    try:
+        response = client.get("/api/risk/backtests?days=365")
+    finally:
+        cache.clear()
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [asset["symbol"] for asset in body["assets"]] == ["BTC", "ETH", "SOL"]
+    assert body["required_passing_assets"] == 2
+    assert body["passing_assets"] == sum(asset["passed"] for asset in body["assets"])
+    assert body["promoted"] is (body["passing_assets"] >= 2)
+    assert body["available_assets"] == 3
 
 
 def test_risk_backtest_endpoint_rejects_unknown_coin() -> None:

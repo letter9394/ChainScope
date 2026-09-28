@@ -30,6 +30,7 @@ import {
   getNotificationSettings,
   getRisk,
   getRiskBacktest,
+  getRiskBacktestPortfolio,
   getWatchlist,
   loginUser,
   logoutUser,
@@ -49,6 +50,7 @@ import type {
   NewsResponse,
   NotificationSettings,
   RiskAssessment,
+  RiskBacktestPortfolioResult,
   RiskBacktestResult,
 } from "@/lib/types";
 
@@ -74,6 +76,8 @@ export default function Home() {
   const [selectedId, setSelectedId] = useState("bitcoin");
   const [risk, setRisk] = useState<RiskAssessment | null>(null);
   const [riskBacktest, setRiskBacktest] = useState<RiskBacktestResult | null>(null);
+  const [riskBacktestPortfolio, setRiskBacktestPortfolio] = useState<RiskBacktestPortfolioResult | null>(null);
+  const [backtestPortfolioError, setBacktestPortfolioError] = useState<string | null>(null);
   const [backtestLoading, setBacktestLoading] = useState(true);
   const [backtestError, setBacktestError] = useState<string | null>(null);
   const [news, setNews] = useState<NewsResponse | null>(null);
@@ -437,6 +441,21 @@ export default function Home() {
   }, [selectedId]);
 
   useEffect(() => {
+    const controller = new AbortController();
+    void getRiskBacktestPortfolio(controller.signal)
+      .then((result) => {
+        setRiskBacktestPortfolio(result);
+        setBacktestPortfolioError(null);
+      })
+      .catch((reason) => {
+        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+          setBacktestPortfolioError(reason instanceof Error ? reason.message : "跨资产验证加载失败");
+        }
+      });
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
     if (selectedId === "gold") return;
     const refreshTimer = window.setInterval(() => {
       void getRisk(selectedId, 30)
@@ -594,9 +613,12 @@ export default function Home() {
 
       <RiskBacktestPanel
         backtest={riskBacktest}
+        portfolio={riskBacktestPortfolio}
+        portfolioError={backtestPortfolioError}
         loading={backtestLoading}
         error={backtestError}
         unavailable={selectedId === "gold"}
+        onSelectCoin={setSelectedId}
       />
 
       <AlertCenter

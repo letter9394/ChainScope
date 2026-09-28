@@ -78,9 +78,28 @@ async function mockApi(page: Page) {
         summary: "测试风险摘要", metrics: [], sample_days: 30, calculated_at: now, market_context: null,
       });
     }
-    if (url.pathname.endsWith("/risk/backtest")) {
+    if (url.pathname === "/api/risk/backtests") {
       return json(route, {
-        coin_id: "bitcoin", symbol: "BTC", model_version: "test", history_days: 365,
+        model_name: "v0.4 标准化逻辑回归实验",
+        target: "未来7日最大跌幅 ≥ 3%",
+        required_passing_assets: 2,
+        passing_assets: 1,
+        available_assets: 3,
+        promoted: false,
+        verdict: "跨资产门槛未通过：仅 1 个资产达标，至少需要 2 个。",
+        assets: [
+          { coin_id: "bitcoin", symbol: "BTC", status: "validated", baseline_hit_rate_percent: 30, precision_percent: 55.6, recall_percent: 11.1, lift: 1.85, signal_count: 9, passed: true },
+          { coin_id: "ethereum", symbol: "ETH", status: "validated", baseline_hit_rate_percent: 36, precision_percent: 32, recall_percent: 8, lift: 0.89, signal_count: 8, passed: false },
+          { coin_id: "solana", symbol: "SOL", status: "validated", baseline_hit_rate_percent: 42, precision_percent: 38, recall_percent: 6, lift: 0.9, signal_count: 6, passed: false },
+        ],
+        calculated_at: now,
+      });
+    }
+    if (url.pathname.endsWith("/risk/backtest")) {
+      const coinId = url.pathname.split("/")[3];
+      const symbol = coinId === "ethereum" ? "ETH" : coinId === "solana" ? "SOL" : "BTC";
+      return json(route, {
+        coin_id: coinId, symbol, model_version: "test", history_days: 365,
         window_days: 30, risk_threshold: 60, hit_threshold_percent: 3, evaluated_points: 300,
         signal_count: 12, sample_start: 1_700_000_000, sample_end: 1_790_000_000,
         horizons: [],
@@ -177,12 +196,20 @@ test("keeps the native gold fallback usable across timeframes", async ({ page })
 });
 
 test("shows base-rate lift and walk-forward validation", async ({ page }) => {
+  await expect(page.getByRole("heading", { name: "跨资产晋级审查" })).toBeVisible();
+  await expect(page.getByText("跨资产暂不晋级", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "模型有效性" })).toBeVisible();
   await expect(page.getByText("1.94×", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Walk-forward 滚动验证" })).toBeVisible();
   await expect(page.getByRole("cell", { name: "第 3 轮", exact: true }).first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "v0.4 特征模型实验" })).toBeVisible();
-  await expect(page.getByText("达到晋级门槛", { exact: true })).toBeVisible();
+  await expect(page.getByText("单资产候选通过", { exact: true })).toBeVisible();
+});
+
+test("switches backtest assets from the cross-asset review", async ({ page }) => {
+  await page.getByRole("button", { name: "查看 ETH 回测" }).click();
+  await expect(page.getByRole("heading", { name: "ETH 高风险信号回测" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /ETH Ethereum/ })).toHaveClass(/active/);
 });
 
 test("attaches a CSRF token before account registration", async ({ page }) => {

@@ -245,6 +245,30 @@ class RiskBacktestResult(BaseModel):
     calculated_at: str
 
 
+class RiskBacktestPortfolioAsset(BaseModel):
+    coin_id: str
+    symbol: str
+    status: Literal["validated", "insufficient_data", "unavailable"]
+    baseline_hit_rate_percent: float | None = None
+    precision_percent: float | None = None
+    recall_percent: float | None = None
+    lift: float | None = None
+    signal_count: int = 0
+    passed: bool = False
+
+
+class RiskBacktestPortfolioResult(BaseModel):
+    model_name: str
+    target: str
+    required_passing_assets: int
+    passing_assets: int
+    available_assets: int
+    promoted: bool
+    verdict: str
+    assets: list[RiskBacktestPortfolioAsset]
+    calculated_at: str
+
+
 class HealthCheck(BaseModel):
     status: Literal["ok", "starting", "degraded", "disabled", "unconfigured", "error"]
     latency_ms: float | None = None

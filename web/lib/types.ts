@@ -244,6 +244,30 @@ export interface RiskBacktestResult {
   calculated_at: string;
 }
 
+export interface RiskBacktestPortfolioAsset {
+  coin_id: string;
+  symbol: string;
+  status: "validated" | "insufficient_data" | "unavailable";
+  baseline_hit_rate_percent: number | null;
+  precision_percent: number | null;
+  recall_percent: number | null;
+  lift: number | null;
+  signal_count: number;
+  passed: boolean;
+}
+
+export interface RiskBacktestPortfolioResult {
+  model_name: string;
+  target: string;
+  required_passing_assets: number;
+  passing_assets: number;
+  available_assets: number;
+  promoted: boolean;
+  verdict: string;
+  assets: RiskBacktestPortfolioAsset[];
+  calculated_at: string;
+}
+
 export interface NewsArticle {
   id: string;
   title: string;

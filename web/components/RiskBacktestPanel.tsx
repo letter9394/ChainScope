@@ -1,10 +1,13 @@
-import type { RiskBacktestResult } from "@/lib/types";
+import type { RiskBacktestPortfolioResult, RiskBacktestResult } from "@/lib/types";
 
 interface RiskBacktestPanelProps {
   backtest: RiskBacktestResult | null;
+  portfolio: RiskBacktestPortfolioResult | null;
+  portfolioError: string | null;
   loading: boolean;
   error: string | null;
   unavailable?: boolean;
+  onSelectCoin: (coinId: string) => void;
 }
 
 const priceFormatter = new Intl.NumberFormat("en-US", {
@@ -21,9 +24,12 @@ const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
 
 export function RiskBacktestPanel({
   backtest,
+  portfolio,
+  portfolioError,
   loading,
   error,
   unavailable = false,
+  onSelectCoin,
 }: RiskBacktestPanelProps) {
   if (unavailable) {
     return (
@@ -70,6 +76,46 @@ export function RiskBacktestPanel({
           <span>次独立高风险信号</span>
         </div>
       </div>
+
+      <section className="backtest-portfolio" aria-label="跨资产模型验证">
+        <div className="backtest-subheading">
+          <h3>跨资产晋级审查</h3>
+          <span>至少 2 个资产通过完整留出期门槛</span>
+        </div>
+        {portfolio ? (
+          <>
+            <div className={`feature-verdict ${portfolio.promoted ? "promoted" : "rejected"}`}>
+              <strong>{portfolio.promoted ? "跨资产达到晋级门槛" : "跨资产暂不晋级"}</strong>
+              <span>{portfolio.verdict}</span>
+            </div>
+            <div className="backtest-portfolio-grid">
+              {portfolio.assets.map((asset) => {
+                const available = asset.status === "validated";
+                return (
+                  <button
+                    type="button"
+                    key={asset.coin_id}
+                    className={`${asset.passed ? "passed" : ""} ${asset.coin_id === backtest.coin_id ? "active" : ""}`}
+                    onClick={() => onSelectCoin(asset.coin_id)}
+                    disabled={!available}
+                    aria-label={`查看 ${asset.symbol} 回测`}
+                  >
+                    <span><b>{asset.symbol}</b>{asset.passed ? "单资产通过" : available ? "未通过" : "不可用"}</span>
+                    <strong>{asset.lift === null ? "—" : `${asset.lift.toFixed(2)}× Lift`}</strong>
+                    <small>
+                      {available
+                        ? `精确率 ${(asset.precision_percent ?? 0).toFixed(1)}% · 基准 ${(asset.baseline_hit_rate_percent ?? 0).toFixed(1)}% · ${asset.signal_count} 次信号`
+                        : "当前历史数据不足或上游暂不可用"}
+                    </small>
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        ) : (
+          <p className="backtest-empty">{portfolioError ?? "正在汇总 BTC、ETH、SOL 的留出期结果…"}</p>
+        )}
+      </section>
 
       <div className="backtest-summary">
         <article><span>滚动窗口</span><strong>{backtest.window_days} 日</strong></article>
@@ -220,7 +266,7 @@ export function RiskBacktestPanel({
         {backtest.feature_model.status === "validated" ? (
           <>
             <div className={`feature-verdict ${backtest.feature_model.promoted ? "promoted" : "rejected"}`}>
-              <strong>{backtest.feature_model.promoted ? "达到晋级门槛" : "暂不晋级"}</strong>
+              <strong>{backtest.feature_model.promoted ? "单资产候选通过" : "单资产暂不通过"}</strong>
               <span>{backtest.feature_model.verdict}</span>
             </div>
             <div className="feature-model-comparison">

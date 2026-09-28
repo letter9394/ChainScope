@@ -10,6 +10,7 @@ from functools import lru_cache
 from time import monotonic, perf_counter
 from urllib.parse import quote, urlsplit
 from uuid import uuid4
+from weakref import WeakKeyDictionary
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,7 +28,7 @@ from app.models import (
     NewsResponse, NewsTranslationRequest, NewsTranslationResponse,
     NotificationSettingsResponse, NotificationSettingsUpdate, NotificationTestResponse,
     PasswordResetConfirm, PasswordResetRequest, PasswordResetRequestResponse, RiskAssessment,
-    RiskBacktestResult, WatchlistItem,
+    RiskBacktestPortfolioAsset, RiskBacktestPortfolioResult, RiskBacktestResult, WatchlistItem,
     SchedulerHealth,
 )
 from app.observability import (
@@ -60,7 +61,16 @@ request_logger = logging.getLogger("chainscope.http")
 service_logger = logging.getLogger("chainscope.service")
 _request_id_pattern = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 _unsafe_methods = frozenset({"POST", "PUT", "PATCH", "DELETE"})
-_risk_backtest_lock = asyncio.Lock()
+_risk_backtest_locks: WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = WeakKeyDictionary()
+
+
+def _risk_backtest_lock() -> asyncio.Lock:
+    loop = asyncio.get_running_loop()
+    lock = _risk_backtest_locks.get(loop)
+    if lock is None:
+        lock = asyncio.Lock()
+        _risk_backtest_locks[loop] = lock
+    return lock
 
 
 @lru_cache
@@ -735,7 +745,7 @@ async def _get_or_compute_risk_backtest(
     if isinstance(cached, RiskBacktestResult):
         return cached, True
 
-    async with _risk_backtest_lock:
+    async with _risk_backtest_lock():
         cached = cache.get(cache_key)
         if isinstance(cached, RiskBacktestResult):
             return cached, True
@@ -757,28 +767,120 @@ async def _get_or_compute_risk_backtest(
 async def _prewarm_default_risk_backtest(settings: Settings) -> None:
     started_at = perf_counter()
     service_logger.info("risk_backtest_prewarm_started")
-    try:
-        _, cache_hit = await _get_or_compute_risk_backtest(
-            coin_id="bitcoin",
-            days=1095,
-            window_days=30,
-            risk_threshold=60,
-            hit_threshold_percent=3.0,
-            client=CoinGeckoClient(settings),
-            settings=settings,
-        )
-    except Exception as exc:
-        service_logger.warning(
-            "risk_backtest_prewarm_failed",
-            extra={"error_type": type(exc).__name__},
-        )
-        return
+    market_client = CoinGeckoClient(settings)
+    warmed_assets: list[str] = []
+    failed_assets: list[str] = []
+    for coin_id in SUPPORTED_COINS:
+        try:
+            await _get_or_compute_risk_backtest(
+                coin_id=coin_id,
+                days=1095,
+                window_days=30,
+                risk_threshold=60,
+                hit_threshold_percent=3.0,
+                client=market_client,
+                settings=settings,
+            )
+            warmed_assets.append(coin_id)
+        except Exception as exc:
+            failed_assets.append(coin_id)
+            service_logger.warning(
+                "risk_backtest_prewarm_asset_failed",
+                extra={"coin_id": coin_id, "error_type": type(exc).__name__},
+            )
     service_logger.info(
         "risk_backtest_prewarm_completed",
         extra={
-            "cache_hit": cache_hit,
+            "warmed_assets": warmed_assets,
+            "failed_assets": failed_assets,
             "duration_ms": round((perf_counter() - started_at) * 1000, 2),
         },
+    )
+
+
+@app.get(
+    "/api/risk/backtests",
+    response_model=RiskBacktestPortfolioResult,
+    tags=["risk"],
+)
+async def risk_backtest_portfolio(
+    response: Response,
+    days: int = Query(default=1095, ge=90, le=1825),
+    window_days: int = Query(default=30, ge=7, le=90),
+    risk_threshold: int = Query(default=60, ge=0, le=100),
+    hit_threshold_percent: float = Query(default=3.0, gt=0, le=50),
+    client: CoinGeckoClient = Depends(get_market_client),
+    settings: Settings = Depends(get_settings),
+) -> RiskBacktestPortfolioResult:
+    evaluations = await asyncio.gather(
+        *(
+            _get_or_compute_risk_backtest(
+                coin_id=coin_id,
+                days=days,
+                window_days=window_days,
+                risk_threshold=risk_threshold,
+                hit_threshold_percent=hit_threshold_percent,
+                client=client,
+                settings=settings,
+            )
+            for coin_id in SUPPORTED_COINS
+        ),
+        return_exceptions=True,
+    )
+    assets: list[RiskBacktestPortfolioAsset] = []
+    all_cache_hits = True
+    for (coin_id, symbol), evaluation in zip(SUPPORTED_COINS.items(), evaluations, strict=True):
+        if isinstance(evaluation, BaseException):
+            all_cache_hits = False
+            service_logger.warning(
+                "risk_backtest_portfolio_asset_failed",
+                extra={"coin_id": coin_id, "error_type": type(evaluation).__name__},
+            )
+            assets.append(
+                RiskBacktestPortfolioAsset(
+                    coin_id=coin_id,
+                    symbol=symbol,
+                    status="unavailable",
+                )
+            )
+            continue
+        result, cache_hit = evaluation
+        all_cache_hits = all_cache_hits and cache_hit
+        feature_model = result.feature_model
+        assets.append(
+            RiskBacktestPortfolioAsset(
+                coin_id=coin_id,
+                symbol=symbol,
+                status=feature_model.status,
+                baseline_hit_rate_percent=feature_model.baseline_hit_rate_percent,
+                precision_percent=feature_model.precision_percent,
+                recall_percent=feature_model.recall_percent,
+                lift=feature_model.lift,
+                signal_count=feature_model.signal_count,
+                passed=feature_model.promoted,
+            )
+        )
+
+    required_passing_assets = 2
+    passing_assets = sum(asset.passed for asset in assets)
+    available_assets = sum(asset.status == "validated" for asset in assets)
+    promoted = passing_assets >= required_passing_assets
+    response.headers["X-ChainScope-Cache"] = "hit" if all_cache_hits else "miss"
+    verdict = (
+        f"跨资产门槛通过：{passing_assets} 个资产通过完整留出期验证，可进入影子运行。"
+        if promoted
+        else f"跨资产门槛未通过：仅 {passing_assets} 个资产达标，至少需要 {required_passing_assets} 个。"
+    )
+    return RiskBacktestPortfolioResult(
+        model_name="v0.4 标准化逻辑回归实验",
+        target=f"未来7日最大跌幅 ≥ {hit_threshold_percent:g}%",
+        required_passing_assets=required_passing_assets,
+        passing_assets=passing_assets,
+        available_assets=available_assets,
+        promoted=promoted,
+        verdict=verdict,
+        assets=assets,
+        calculated_at=utc_iso(),
     )
 
 

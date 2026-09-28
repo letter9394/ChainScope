@@ -14,8 +14,8 @@ ChainScope is a full-stack Web3 market intelligence and risk alert platform buil
 - In-app candles update incrementally every two seconds; the gold fallback can switch between a live PAXG proxy and delayed Massive XAU/USD history
 - Transparent 0–100 score based on volatility, maximum drawdown, volume anomaly, and momentum
 - A three-year rolling historical backtest reports 1/3/7-day outcomes, market-regime splits, base-rate lift, precision/recall, and embargoed walk-forward validation
-- An interpretable v0.4 logistic-regression experiment compares momentum, volatility, drawdown, volume, moving-average distance, and streak features against v0.3; it cannot replace the live score unless strict holdout gates pass
-- Identical backtest evaluations are cached server-side for one hour and the default BTC study is prewarmed after startup without blocking health checks; `X-ChainScope-Cache` exposes hit/miss diagnostics
+- An interpretable v0.4 logistic-regression experiment compares momentum, volatility, drawdown, volume, moving-average distance, and streak features against v0.3; promotion requires strict single-asset gates and at least two passing assets across BTC, ETH, and SOL
+- Identical backtest evaluations are cached server-side for one hour and all three crypto studies are prewarmed after startup without blocking health checks; `X-ChainScope-Cache` exposes hit/miss diagnostics
 - Live CoinDesk news with source links, sentiment labels, and on-demand English-to-Chinese translation
 - Optional OpenAI-compatible news analysis with an honest rule-based fallback
 - Signed HttpOnly sessions, scrypt password hashes, one-time password recovery, and 24-hour email ownership verification before email alerts can be enabled
