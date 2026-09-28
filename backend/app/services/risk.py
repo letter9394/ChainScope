@@ -615,8 +615,8 @@ def _fit_logistic_regression(
     rows: list[list[float]],
     labels: list[int],
     *,
-    iterations: int = 160,
-    learning_rate: float = 0.12,
+    iterations: int = 120,
+    learning_rate: float = 0.14,
     l2_penalty: float = 0.015,
 ) -> tuple[list[float], float, list[float], list[float]]:
     if not rows or len(rows) != len(labels):
