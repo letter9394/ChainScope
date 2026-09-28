@@ -615,8 +615,8 @@ def _fit_logistic_regression(
     rows: list[list[float]],
     labels: list[int],
     *,
-    iterations: int = 320,
-    learning_rate: float = 0.08,
+    iterations: int = 160,
+    learning_rate: float = 0.12,
     l2_penalty: float = 0.015,
 ) -> tuple[list[float], float, list[float], list[float]]:
     if not rows or len(rows) != len(labels):
@@ -655,7 +655,7 @@ def _fit_logistic_regression(
             update = learning_rate * gradient
             weights[column] -= update
             largest_update = max(largest_update, abs(update))
-        if largest_update < 1e-6:
+        if largest_update < 1e-5:
             break
     return weights, intercept, means, scales
 
