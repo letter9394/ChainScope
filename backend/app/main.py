@@ -719,7 +719,7 @@ def _risk_backtest_cache_key(
     hit_threshold_percent: float,
 ) -> str:
     return (
-        f"risk-backtest:v6:{coin_id}:{days}:{window_days}:"
+        f"risk-backtest:v7:{coin_id}:{days}:{window_days}:"
         f"{risk_threshold}:{hit_threshold_percent:g}"
     )
 
@@ -847,7 +847,7 @@ async def risk_backtest_portfolio(
         result, cache_hit = evaluation
         all_cache_hits = all_cache_hits and cache_hit
         feature_model = result.feature_model
-        label_study = result.label_study
+        label_stability = result.label_stability
         assets.append(
             RiskBacktestPortfolioAsset(
                 coin_id=coin_id,
@@ -859,8 +859,9 @@ async def risk_backtest_portfolio(
                 lift=feature_model.lift,
                 signal_count=feature_model.signal_count,
                 passed=feature_model.promoted,
-                recommended_label=label_study.recommended_key,
-                label_improved=label_study.recommended,
+                recommended_label=label_stability.consistent_key,
+                label_improved=label_stability.stable,
+                stable_horizons=sum(item.passed for item in label_stability.horizons),
             )
         )
 
@@ -877,10 +878,10 @@ async def risk_backtest_portfolio(
         else f"跨资产门槛未通过：仅 {passing_assets} 个资产达标，至少需要 {required_passing_assets} 个。"
     )
     label_study_verdict = (
-        f"标签替换门槛通过：{label_study_passing_assets} 个资产独立改善，可进入影子运行。"
+        f"跨周期标签门槛通过：{label_study_passing_assets} 个资产在3日与7日周期均独立改善，可进入影子运行。"
         if label_study_recommended
         else (
-            f"标签替换门槛未通过：仅 {label_study_passing_assets} 个资产独立改善，"
+            f"跨周期标签门槛未通过：仅 {label_study_passing_assets} 个资产在3日与7日周期均独立改善，"
             f"至少需要 {required_passing_assets} 个；线上标签保持不变。"
         )
     )

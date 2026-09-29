@@ -270,11 +270,33 @@ class RiskLabelExperimentResult(BaseModel):
 
 class RiskLabelStudyResult(BaseModel):
     model_name: str
+    horizon_days: int
     status: Literal["validated", "insufficient_data"]
     recommended_key: Literal["volatility", "quantile"] | None = None
     recommended: bool
     verdict: str
     experiments: list[RiskLabelExperimentResult]
+
+
+class RiskLabelHorizonReview(BaseModel):
+    horizon_days: int
+    status: Literal["validated", "insufficient_data"]
+    selected_key: Literal["fixed", "volatility", "quantile"]
+    selected_label: str
+    lift: float
+    lift_confidence_lower: float | None = None
+    brier_skill_score: float
+    passed: bool
+    verdict: str
+
+
+class RiskLabelStabilityResult(BaseModel):
+    model_name: str
+    required_horizons: list[int]
+    consistent_key: Literal["volatility", "quantile"] | None = None
+    stable: bool
+    verdict: str
+    horizons: list[RiskLabelHorizonReview]
 
 
 class RiskBacktestResult(BaseModel):
@@ -297,6 +319,7 @@ class RiskBacktestResult(BaseModel):
     walk_forward: RiskBacktestWalkForward
     feature_model: RiskFeatureModelResult
     label_study: RiskLabelStudyResult
+    label_stability: RiskLabelStabilityResult
     recent_signals: list[RiskBacktestSignal]
     methodology: str
     calculated_at: str
@@ -314,6 +337,7 @@ class RiskBacktestPortfolioAsset(BaseModel):
     passed: bool = False
     recommended_label: Literal["volatility", "quantile"] | None = None
     label_improved: bool = False
+    stable_horizons: int = 0
 
 
 class RiskBacktestPortfolioResult(BaseModel):

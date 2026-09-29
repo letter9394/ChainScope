@@ -89,7 +89,7 @@ export function RiskBacktestPanel({
               <span>{portfolio.verdict}</span>
             </div>
             <div className={`feature-verdict ${portfolio.label_study_recommended ? "promoted" : "rejected"}`}>
-              <strong>{portfolio.label_study_recommended ? "v0.5 标签可进入影子运行" : "v0.5 标签保持实验状态"}</strong>
+              <strong>{portfolio.label_study_recommended ? "v0.6 标签可进入影子运行" : "v0.6 标签保持实验状态"}</strong>
               <span>{portfolio.label_study_verdict}</span>
             </div>
             <div className="backtest-portfolio-grid">
@@ -108,7 +108,7 @@ export function RiskBacktestPanel({
                     <strong>{asset.lift === null ? "—" : `${asset.lift.toFixed(2)}× Lift`}</strong>
                     <small>
                       {available
-                        ? `精确率 ${(asset.precision_percent ?? 0).toFixed(1)}% · 基准 ${(asset.baseline_hit_rate_percent ?? 0).toFixed(1)}% · ${asset.signal_count} 次信号`
+                        ? `精确率 ${(asset.precision_percent ?? 0).toFixed(1)}% · 基准 ${(asset.baseline_hit_rate_percent ?? 0).toFixed(1)}% · ${asset.signal_count} 次信号 · 标签 ${asset.stable_horizons}/2 周期`
                         : "当前历史数据不足或上游暂不可用"}
                     </small>
                   </button>
@@ -374,6 +374,32 @@ export function RiskBacktestPanel({
         ) : (
           <p className="backtest-empty">{backtest.label_study.verdict}</p>
         )}
+      </section>
+
+      <section className="backtest-label-stability">
+        <div className="backtest-subheading">
+          <h3>v0.6 跨周期稳定性审查</h3>
+          <span>同一替代标签必须同时通过 3 日与 7 日留出期门槛</span>
+        </div>
+        <div className={`feature-verdict ${backtest.label_stability.stable ? "promoted" : "rejected"}`}>
+          <strong>{backtest.label_stability.stable ? "跨周期结果一致" : "跨周期结果不稳定"}</strong>
+          <span>{backtest.label_stability.verdict}</span>
+        </div>
+        <div className="label-study-grid label-stability-grid">
+          {backtest.label_stability.horizons.map((review) => (
+            <article key={review.horizon_days} className={review.passed ? "winner" : ""}>
+              <div><span>未来 {review.horizon_days} 日</span><b>Lift {review.lift.toFixed(2)}×</b></div>
+              <p>{review.passed ? "替代标签通过本周期完整门槛" : "本周期继续使用固定3%标签"}</p>
+              <dl>
+                <div><dt>本周期选择</dt><dd>{review.selected_label}</dd></div>
+                <div><dt>Lift 区间下界</dt><dd>{review.lift_confidence_lower === null ? "—" : review.lift_confidence_lower.toFixed(2)}</dd></div>
+                <div><dt>Brier Skill</dt><dd>{review.brier_skill_score > 0 ? "+" : ""}{review.brier_skill_score.toFixed(3)}</dd></div>
+                <div><dt>周期结论</dt><dd>{review.passed ? "通过" : "未通过"}</dd></div>
+              </dl>
+            </article>
+          ))}
+        </div>
+        <p className="label-study-note">此门槛检查的是结论能否跨预测窗口复现；只有两个周期推荐同一种替代标签，才继续参加 BTC、ETH、SOL 跨资产审查。</p>
       </section>
 
       <div className="backtest-signals">

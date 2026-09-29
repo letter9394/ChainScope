@@ -269,11 +269,33 @@ export interface RiskLabelExperimentResult {
 
 export interface RiskLabelStudyResult {
   model_name: string;
+  horizon_days: number;
   status: "validated" | "insufficient_data";
   recommended_key: "volatility" | "quantile" | null;
   recommended: boolean;
   verdict: string;
   experiments: RiskLabelExperimentResult[];
+}
+
+export interface RiskLabelHorizonReview {
+  horizon_days: number;
+  status: "validated" | "insufficient_data";
+  selected_key: "fixed" | "volatility" | "quantile";
+  selected_label: string;
+  lift: number;
+  lift_confidence_lower: number | null;
+  brier_skill_score: number;
+  passed: boolean;
+  verdict: string;
+}
+
+export interface RiskLabelStabilityResult {
+  model_name: string;
+  required_horizons: number[];
+  consistent_key: "volatility" | "quantile" | null;
+  stable: boolean;
+  verdict: string;
+  horizons: RiskLabelHorizonReview[];
 }
 
 export interface RiskBacktestResult {
@@ -296,6 +318,7 @@ export interface RiskBacktestResult {
   walk_forward: RiskBacktestWalkForward;
   feature_model: RiskFeatureModelResult;
   label_study: RiskLabelStudyResult;
+  label_stability: RiskLabelStabilityResult;
   recent_signals: RiskBacktestSignal[];
   methodology: string;
   calculated_at: string;
@@ -313,6 +336,7 @@ export interface RiskBacktestPortfolioAsset {
   passed: boolean;
   recommended_label: "volatility" | "quantile" | null;
   label_improved: boolean;
+  stable_horizons: number;
 }
 
 export interface RiskBacktestPortfolioResult {

@@ -4,7 +4,8 @@ from app.models import DerivativesSnapshot, HistoryPoint
 from app.services.risk import (
     _block_bootstrap_confidence_intervals, _classification_quality,
     _feature_model_validation, _fit_logistic_regression,
-    _brier_skill_score, _label_study_validation, _market_regime, _predict_probability,
+    _brier_skill_score, _label_stability_validation, _label_study_validation,
+    _market_regime, _predict_probability,
     _probability_calibration, _risk_feature_vector,
     _walk_forward_validation, assess_risk, backtest_risk,
 )
@@ -138,6 +139,12 @@ def test_backtest_measures_forward_drawdowns_after_new_high_risk_signal() -> Non
     assert len(result.walk_forward.folds) >= 1
     assert result.feature_model.status == "insufficient_data"
     assert result.feature_model.promoted is False
+    assert result.label_stability.required_horizons == [3, 7]
+    assert result.label_stability.stable is False
+    assert all(
+        review.status == "insufficient_data"
+        for review in result.label_stability.horizons
+    )
 
 
 def test_backtest_returns_zero_rates_when_no_high_risk_signal_occurs() -> None:
@@ -321,3 +328,37 @@ def test_quantile_label_threshold_uses_training_period_only() -> None:
         original_quantile.folds[0].probability_threshold_percent
         == changed_quantile.folds[0].probability_threshold_percent
     )
+
+
+def test_label_stability_requires_the_same_candidate_across_both_horizons() -> None:
+    history = points(
+        [100 + index * 0.05 + (index % 20) - 10 for index in range(400)],
+        [1_000 + index for index in range(400)],
+    )
+    base = _label_study_validation(
+        history,
+        last_signal_index=392,
+        horizon_days=7,
+        hit_threshold_percent=3,
+    )
+    three_day = base.model_copy(update={
+        "horizon_days": 3,
+        "recommended": True,
+        "recommended_key": "volatility",
+    })
+    seven_day = base.model_copy(update={
+        "horizon_days": 7,
+        "recommended": True,
+        "recommended_key": "volatility",
+    })
+
+    stable = _label_stability_validation([three_day, seven_day])
+    mismatched = _label_stability_validation([
+        three_day,
+        seven_day.model_copy(update={"recommended_key": "quantile"}),
+    ])
+
+    assert stable.stable is True
+    assert stable.consistent_key == "volatility"
+    assert mismatched.stable is False
+    assert mismatched.consistent_key is None

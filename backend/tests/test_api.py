@@ -206,12 +206,23 @@ def test_risk_backtest_endpoint_returns_horizon_statistics() -> None:
     assert len(body["feature_model"]["folds"]) == 3
     assert len(body["feature_model"]["feature_importance"]) == 10
     assert body["label_study"]["status"] == "validated"
+    assert body["label_study"]["horizon_days"] == 7
     assert [item["key"] for item in body["label_study"]["experiments"]] == [
         "fixed", "volatility", "quantile",
     ]
     assert all(
         len(item["folds"]) == 3
         for item in body["label_study"]["experiments"]
+    )
+    assert body["label_stability"]["required_horizons"] == [3, 7]
+    assert [item["horizon_days"] for item in body["label_stability"]["horizons"]] == [3, 7]
+    assert body["label_stability"]["stable"] is (
+        len({
+            item["selected_key"]
+            for item in body["label_stability"]["horizons"]
+            if item["passed"]
+        }) == 1
+        and all(item["passed"] for item in body["label_stability"]["horizons"])
     )
     assert all(
         item["precision_confidence_interval"]["resamples"] == 500
@@ -320,6 +331,11 @@ def test_risk_backtest_portfolio_enforces_cross_asset_promotion_gate() -> None:
     )
     assert body["label_study_recommended"] is (
         body["label_study_passing_assets"] >= 2
+    )
+    assert all(asset["stable_horizons"] <= 2 for asset in body["assets"])
+    assert body["label_study_passing_assets"] == sum(
+        asset["stable_horizons"] == 2 and asset["label_improved"]
+        for asset in body["assets"]
     )
 
 

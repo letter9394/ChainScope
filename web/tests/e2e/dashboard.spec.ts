@@ -87,13 +87,13 @@ async function mockApi(page: Page) {
         available_assets: 3,
         promoted: false,
         verdict: "跨资产门槛未通过：仅 1 个资产达标，至少需要 2 个。",
-        label_study_passing_assets: 1,
+        label_study_passing_assets: 0,
         label_study_recommended: false,
-        label_study_verdict: "标签替换门槛未通过：仅 1 个资产独立改善，至少需要 2 个；线上标签保持不变。",
+        label_study_verdict: "跨周期标签门槛未通过：仅 0 个资产在3日与7日周期均独立改善，至少需要 2 个；线上标签保持不变。",
         assets: [
-          { coin_id: "bitcoin", symbol: "BTC", status: "validated", baseline_hit_rate_percent: 30, precision_percent: 55.6, recall_percent: 11.1, lift: 1.85, signal_count: 9, passed: true, recommended_label: "volatility", label_improved: true },
-          { coin_id: "ethereum", symbol: "ETH", status: "validated", baseline_hit_rate_percent: 36, precision_percent: 32, recall_percent: 8, lift: 0.89, signal_count: 8, passed: false, recommended_label: null, label_improved: false },
-          { coin_id: "solana", symbol: "SOL", status: "validated", baseline_hit_rate_percent: 42, precision_percent: 38, recall_percent: 6, lift: 0.9, signal_count: 6, passed: false, recommended_label: null, label_improved: false },
+          { coin_id: "bitcoin", symbol: "BTC", status: "validated", baseline_hit_rate_percent: 30, precision_percent: 55.6, recall_percent: 11.1, lift: 1.85, signal_count: 9, passed: true, recommended_label: null, label_improved: false, stable_horizons: 1 },
+          { coin_id: "ethereum", symbol: "ETH", status: "validated", baseline_hit_rate_percent: 36, precision_percent: 32, recall_percent: 8, lift: 0.89, signal_count: 8, passed: false, recommended_label: null, label_improved: false, stable_horizons: 0 },
+          { coin_id: "solana", symbol: "SOL", status: "validated", baseline_hit_rate_percent: 42, precision_percent: 38, recall_percent: 6, lift: 0.9, signal_count: 6, passed: false, recommended_label: null, label_improved: false, stable_horizons: 0 },
         ],
         calculated_at: now,
       });
@@ -161,6 +161,7 @@ async function mockApi(page: Page) {
         },
         label_study: {
           model_name: "v0.5 标签与概率校准实验",
+          horizon_days: 7,
           status: "validated",
           recommended_key: "volatility",
           recommended: true,
@@ -169,6 +170,17 @@ async function mockApi(page: Page) {
             { key: "fixed", label: "固定跌幅", target: "未来7日最大跌幅 ≥ 3%", status: "validated", total_holdout_points: 150, event_days: 45, signal_count: 9, baseline_hit_rate_percent: 30, precision_percent: 55.6, recall_percent: 11.1, lift: 1.85, brier_score: 0.2241, brier_skill_score: -0.067, calibration_error_percent: 9.8, precision_confidence_interval: { lower: 28.6, upper: 77.8, confidence_level_percent: 95, method: "14日循环区块Bootstrap", resamples: 500, block_days: 14 }, lift_confidence_interval: { lower: 0.92, upper: 2.68, confidence_level_percent: 95, method: "14日循环区块Bootstrap", resamples: 500, block_days: 14 }, brier_confidence_interval: { lower: 0.1901, upper: 0.2598, confidence_level_percent: 95, method: "14日循环区块Bootstrap", resamples: 500, block_days: 14 }, folds: [] },
             { key: "volatility", label: "波动率归一化", target: "未来7日跌幅超过历史波动自适应阈值", status: "validated", total_holdout_points: 150, event_days: 36, signal_count: 8, baseline_hit_rate_percent: 24, precision_percent: 62.5, recall_percent: 13.9, lift: 2.6, brier_score: 0.1812, brier_skill_score: 0.007, calibration_error_percent: 7.1, precision_confidence_interval: { lower: 40, upper: 87.5, confidence_level_percent: 95, method: "14日循环区块Bootstrap", resamples: 500, block_days: 14 }, lift_confidence_interval: { lower: 1.18, upper: 3.92, confidence_level_percent: 95, method: "14日循环区块Bootstrap", resamples: 500, block_days: 14 }, brier_confidence_interval: { lower: 0.149, upper: 0.216, confidence_level_percent: 95, method: "14日循环区块Bootstrap", resamples: 500, block_days: 14 }, folds: [] },
             { key: "quantile", label: "训练集最差25%", target: "未来7日跌幅进入训练集最差25%", status: "validated", total_holdout_points: 150, event_days: 38, signal_count: 7, baseline_hit_rate_percent: 25.3, precision_percent: 42.9, recall_percent: 7.9, lift: 1.69, brier_score: 0.2022, brier_skill_score: -0.070, calibration_error_percent: 8.6, precision_confidence_interval: { lower: 14.3, upper: 71.4, confidence_level_percent: 95, method: "14日循环区块Bootstrap", resamples: 500, block_days: 14 }, lift_confidence_interval: { lower: 0.51, upper: 2.9, confidence_level_percent: 95, method: "14日循环区块Bootstrap", resamples: 500, block_days: 14 }, brier_confidence_interval: { lower: 0.171, upper: 0.238, confidence_level_percent: 95, method: "14日循环区块Bootstrap", resamples: 500, block_days: 14 }, folds: [] },
+          ],
+        },
+        label_stability: {
+          model_name: "v0.6 跨周期稳定性审查",
+          required_horizons: [3, 7],
+          consistent_key: null,
+          stable: false,
+          verdict: "替代标签尚未在3日、7日周期同时通过，继续保留固定3%标签。",
+          horizons: [
+            { horizon_days: 3, status: "validated", selected_key: "fixed", selected_label: "固定跌幅", lift: 1.41, lift_confidence_lower: 0.79, brier_skill_score: -0.021, passed: false, verdict: "3日周期未通过。" },
+            { horizon_days: 7, status: "validated", selected_key: "volatility", selected_label: "波动率归一化", lift: 2.6, lift_confidence_lower: 1.18, brier_skill_score: 0.007, passed: true, verdict: "7日周期通过。" },
           ],
         },
         recent_signals: [], methodology: "E2E fixture", calculated_at: now,
@@ -222,6 +234,8 @@ test("shows base-rate lift and walk-forward validation", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "v0.5 标签与概率校准实验" })).toBeVisible();
   await expect(page.getByText("2.60× Lift", { exact: true })).toBeVisible();
   await expect(page.getByText("1.18–3.92", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "v0.6 跨周期稳定性审查" })).toBeVisible();
+  await expect(page.getByText("跨周期结果不稳定", { exact: true })).toBeVisible();
 });
 
 test("switches backtest assets from the cross-asset review", async ({ page }) => {

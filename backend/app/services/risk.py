@@ -7,7 +7,7 @@ from app.models import (
     DerivativesSnapshot, HistoryPoint, NewsArticle, RiskAssessment,
     RiskFeatureImportance, RiskFeatureModelFold, RiskFeatureModelResult,
     RiskConfidenceInterval, RiskLabelExperimentFold, RiskLabelExperimentResult,
-    RiskLabelStudyResult,
+    RiskLabelHorizonReview, RiskLabelStabilityResult, RiskLabelStudyResult,
     RiskBacktestHorizon, RiskBacktestQuality, RiskBacktestRegime,
     RiskBacktestResult, RiskBacktestSensitivity, RiskBacktestSignal,
     RiskBacktestValidation, RiskBacktestWalkForward,
@@ -1287,6 +1287,7 @@ def _label_study_validation(
     if len(samples) < 180:
         return RiskLabelStudyResult(
             model_name=model_name,
+            horizon_days=horizon_days,
             status="insufficient_data",
             recommended=False,
             verdict="历史样本不足，暂不能进行三种标签的滚动留出期比较。",
@@ -1337,11 +1338,74 @@ def _label_study_validation(
     )
     return RiskLabelStudyResult(
         model_name=model_name,
+        horizon_days=horizon_days,
         status="validated",
         recommended_key=recommended_candidate.key if recommended_candidate else None,
         recommended=recommended,
         verdict=verdict,
         experiments=experiments,
+    )
+
+
+def _label_stability_validation(
+    studies: list[RiskLabelStudyResult],
+) -> RiskLabelStabilityResult:
+    reviews: list[RiskLabelHorizonReview] = []
+    for study in studies:
+        fixed = study.experiments[0]
+        selected = fixed
+        if study.recommended_key is not None:
+            selected = next(
+                experiment
+                for experiment in study.experiments
+                if experiment.key == study.recommended_key
+            )
+        lift_confidence_lower = (
+            selected.lift_confidence_interval.lower
+            if selected.lift_confidence_interval is not None
+            else None
+        )
+        reviews.append(RiskLabelHorizonReview(
+            horizon_days=study.horizon_days,
+            status=study.status,
+            selected_key=selected.key,
+            selected_label=selected.label,
+            lift=selected.lift,
+            lift_confidence_lower=lift_confidence_lower,
+            brier_skill_score=selected.brier_skill_score,
+            passed=study.recommended,
+            verdict=study.verdict,
+        ))
+
+    recommended_keys = {
+        study.recommended_key
+        for study in studies
+        if study.recommended and study.recommended_key is not None
+    }
+    stable = (
+        len(studies) >= 2
+        and all(study.status == "validated" and study.recommended for study in studies)
+        and len(recommended_keys) == 1
+    )
+    consistent_key = next(iter(recommended_keys)) if stable else None
+    required_horizons = [study.horizon_days for study in studies]
+    verdict = (
+        f"{reviews[0].selected_label}在"
+        f"{'、'.join(f'{days}日' for days in required_horizons)}周期均通过完整门槛，"
+        "可进入跨资产复核。"
+        if stable
+        else (
+            f"替代标签尚未在{'、'.join(f'{days}日' for days in required_horizons)}周期"
+            "同时通过，继续保留固定3%标签。"
+        )
+    )
+    return RiskLabelStabilityResult(
+        model_name="v0.6 跨周期稳定性审查",
+        required_horizons=required_horizons,
+        consistent_key=consistent_key,
+        stable=stable,
+        verdict=verdict,
+        horizons=reviews,
     )
 
 
@@ -1535,12 +1599,25 @@ def backtest_risk(
         horizon_days=comparison_horizon,
         hit_threshold_percent=hit_threshold_percent,
     )
-    label_study = _label_study_validation(
-        clean_history,
-        last_signal_index=last_signal_index,
-        horizon_days=comparison_horizon,
-        hit_threshold_percent=hit_threshold_percent,
+    stability_horizons = sorted({
+        comparison_horizon,
+        *(days for days in (3, 7) if days <= comparison_horizon),
+    })
+    label_studies = [
+        _label_study_validation(
+            clean_history,
+            last_signal_index=last_signal_index,
+            horizon_days=horizon_days,
+            hit_threshold_percent=hit_threshold_percent,
+        )
+        for horizon_days in stability_horizons
+    ]
+    label_study = next(
+        study
+        for study in label_studies
+        if study.horizon_days == comparison_horizon
     )
+    label_stability = _label_stability_validation(label_studies)
 
     return RiskBacktestResult(
         coin_id=coin_id,
@@ -1562,6 +1639,7 @@ def backtest_risk(
         walk_forward=walk_forward,
         feature_model=feature_model,
         label_study=label_study,
+        label_stability=label_stability,
         recent_signals=signals[-5:][::-1],
         methodology=(
             f"使用{window_days}日滚动基础风险分；仅记录风险分首次上穿阈值的日期。"
@@ -1571,7 +1649,8 @@ def backtest_risk(
             "v0.4特征模型仅在留出期通过晋级门槛后才允许替代现有规则模型。"
             "v0.5标签实验比较固定跌幅、波动率归一化与训练集分位数标签，并报告概率校准；"
             "精确率、Lift与Brier Score使用14日区块Bootstrap估计95%置信区间；"
-            "替代标签需通过至少两个资产验证才允许影响线上模型。"
+            "v0.6要求同一替代标签在3日与7日周期都通过完整门槛；"
+            "最终还需通过至少两个资产验证才允许影响线上模型。"
         ),
         calculated_at=datetime.now(UTC).isoformat(),
     )
