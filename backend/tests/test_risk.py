@@ -1,12 +1,13 @@
 import pytest
 
-from app.models import DerivativesSnapshot, HistoryPoint
+from app.models import DerivativesSnapshot, HistoryPoint, RiskLabelStabilityResult
 from app.services.risk import (
     _block_bootstrap_confidence_intervals, _classification_quality,
     _feature_model_validation, _fit_logistic_regression,
     _brier_skill_score, _label_stability_validation, _label_study_validation,
     _market_regime, _predict_probability,
     _probability_calibration, _risk_feature_vector,
+    _temporal_stability_validation,
     _walk_forward_validation, assess_risk, backtest_risk,
 )
 
@@ -362,3 +363,65 @@ def test_label_stability_requires_the_same_candidate_across_both_horizons() -> N
     assert stable.consistent_key == "volatility"
     assert mismatched.stable is False
     assert mismatched.consistent_key is None
+
+
+def test_temporal_stability_distinguishes_stable_and_deteriorating_periods() -> None:
+    history = points(
+        [100 + index * 0.05 + (index % 20) - 10 for index in range(400)],
+        [1_000 + index for index in range(400)],
+    )
+    study = _label_study_validation(
+        history,
+        last_signal_index=392,
+        horizon_days=7,
+        hit_threshold_percent=3,
+    )
+    fixed = study.experiments[0]
+    stable_folds = [
+        fold.model_copy(update={
+            "holdout_signal_count": 2,
+            "precision_percent": 45 + index * 5,
+            "lift": 1.2 + index * 0.1,
+            "brier_skill_score": 0.05 + index * 0.02,
+        })
+        for index, fold in enumerate(fixed.folds)
+    ]
+    stable_study = study.model_copy(update={
+        "experiments": [
+            fixed.model_copy(update={"folds": stable_folds}),
+            *study.experiments[1:],
+        ],
+    })
+    fixed_stability = RiskLabelStabilityResult(
+        model_name="test",
+        required_horizons=[3, 7],
+        stable=False,
+        verdict="test",
+        horizons=[],
+    )
+
+    stable = _temporal_stability_validation(stable_study, fixed_stability)
+    deteriorating_folds = [
+        *stable_folds[:2],
+        stable_folds[2].model_copy(update={
+            "lift": 0.7,
+            "brier_skill_score": -0.12,
+        }),
+    ]
+    deteriorating_study = stable_study.model_copy(update={
+        "experiments": [
+            fixed.model_copy(update={"folds": deteriorating_folds}),
+            *study.experiments[1:],
+        ],
+    })
+    deteriorating = _temporal_stability_validation(
+        deteriorating_study,
+        fixed_stability,
+    )
+
+    assert stable.status == "stable"
+    assert len(stable.periods) == 3
+    assert all(period.passed for period in stable.periods)
+    assert deteriorating.status == "deteriorating"
+    assert deteriorating.lift_change == -0.5
+    assert deteriorating.periods[-1].passed is False

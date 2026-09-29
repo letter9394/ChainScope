@@ -222,6 +222,8 @@ export interface RiskFeatureModelResult {
 
 export interface RiskLabelExperimentFold {
   fold: number;
+  holdout_start: number;
+  holdout_end: number;
   event_threshold_percent: number;
   probability_threshold_percent: number;
   training_points: number;
@@ -298,6 +300,34 @@ export interface RiskLabelStabilityResult {
   horizons: RiskLabelHorizonReview[];
 }
 
+export interface RiskTemporalStabilityPeriod {
+  period: number;
+  holdout_start: number;
+  holdout_end: number;
+  holdout_points: number;
+  event_days: number;
+  signal_count: number;
+  baseline_hit_rate_percent: number;
+  precision_percent: number;
+  lift: number;
+  brier_skill_score: number;
+  calibration_error_percent: number;
+  passed: boolean;
+}
+
+export interface RiskTemporalStabilityResult {
+  model_name: string;
+  status: "stable" | "mixed" | "deteriorating" | "insufficient_data";
+  selected_key: "fixed" | "volatility" | "quantile";
+  selected_label: string;
+  horizon_days: number;
+  lift_change: number;
+  brier_skill_change: number;
+  event_rate_change_percent_points: number;
+  verdict: string;
+  periods: RiskTemporalStabilityPeriod[];
+}
+
 export interface RiskBacktestResult {
   coin_id: string;
   symbol: string;
@@ -319,6 +349,7 @@ export interface RiskBacktestResult {
   feature_model: RiskFeatureModelResult;
   label_study: RiskLabelStudyResult;
   label_stability: RiskLabelStabilityResult;
+  temporal_stability: RiskTemporalStabilityResult;
   recent_signals: RiskBacktestSignal[];
   methodology: string;
   calculated_at: string;

@@ -286,7 +286,7 @@ main { width: min(1220px, calc(100% - 40px)); margin: 0 auto; }
 .backtest-drawdowns { display: grid; gap: 8px; margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--line); }
 .backtest-drawdowns span { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 10px; }
 .backtest-drawdowns b { color: var(--danger); font-weight: 700; }
-.backtest-quality, .backtest-walk-forward, .backtest-feature-model, .backtest-label-study, .backtest-label-stability { margin-top: 12px; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,.012); }
+.backtest-quality, .backtest-walk-forward, .backtest-feature-model, .backtest-label-study, .backtest-label-stability, .backtest-temporal-stability { margin-top: 12px; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,.012); }
 .backtest-quality-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .backtest-quality-grid article, .backtest-walk-summary article { padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.018); }
 .backtest-quality-grid span, .backtest-walk-summary span { display: block; color: var(--muted); font-size: 9px; }
@@ -319,6 +319,11 @@ main { width: min(1220px, calc(100% - 40px)); margin: 0 auto; }
 .feature-verdict.rejected strong { color: var(--danger); }
 .feature-verdict.promoted { border-color: rgba(101,230,190,.32); background: rgba(101,230,190,.055); }
 .feature-verdict.promoted strong { color: var(--accent); }
+.feature-verdict.watch { border-color: rgba(241,199,91,.28); background: rgba(241,199,91,.045); }
+.feature-verdict.watch strong { color: #f1c75b; }
+.temporal-stability-table { margin-top: 12px; }
+.temporal-stability-table table { min-width: 860px; }
+.temporal-stability-table td:nth-child(n+2), .temporal-stability-table th:nth-child(n+2) { text-align: right; }
 .feature-model-comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
 .feature-model-comparison article { padding: 16px; border: 1px solid var(--line); border-radius: 13px; background: rgba(255,255,255,.018); }
 .feature-model-comparison span, .feature-model-comparison small { display: block; color: var(--muted); font-size: 9px; }

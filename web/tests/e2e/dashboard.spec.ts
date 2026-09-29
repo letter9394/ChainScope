@@ -183,6 +183,22 @@ async function mockApi(page: Page) {
             { horizon_days: 7, status: "validated", selected_key: "volatility", selected_label: "波动率归一化", lift: 2.6, lift_confidence_lower: 1.18, brier_skill_score: 0.007, passed: true, verdict: "7日周期通过。" },
           ],
         },
+        temporal_stability: {
+          model_name: "v0.7 时间稳定性与漂移监控",
+          status: "deteriorating",
+          selected_key: "fixed",
+          selected_label: "固定跌幅",
+          horizon_days: 7,
+          lift_change: -0.62,
+          brier_skill_change: -0.115,
+          event_rate_change_percent_points: 4.2,
+          verdict: "固定跌幅最近留出期相对首期出现性能衰减；仅作为监控告警，不会自动改变线上风险模型。",
+          periods: [
+            { period: 1, holdout_start: 1_740_000_000_000, holdout_end: 1_744_000_000_000, holdout_points: 50, event_days: 15, signal_count: 3, baseline_hit_rate_percent: 30, precision_percent: 66.7, lift: 2.22, brier_skill_score: 0.08, calibration_error_percent: 6, passed: true },
+            { period: 2, holdout_start: 1_744_086_400_000, holdout_end: 1_748_086_400_000, holdout_points: 50, event_days: 16, signal_count: 2, baseline_hit_rate_percent: 32, precision_percent: 50, lift: 1.56, brier_skill_score: 0.02, calibration_error_percent: 8, passed: true },
+            { period: 3, holdout_start: 1_748_172_800_000, holdout_end: 1_752_172_800_000, holdout_points: 50, event_days: 17, signal_count: 2, baseline_hit_rate_percent: 34.2, precision_percent: 25, lift: 0.73, brier_skill_score: -0.035, calibration_error_percent: 12, passed: false },
+          ],
+        },
         recent_signals: [], methodology: "E2E fixture", calculated_at: now,
       });
     }
@@ -236,6 +252,8 @@ test("shows base-rate lift and walk-forward validation", async ({ page }) => {
   await expect(page.getByText("1.18–3.92", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "v0.6 跨周期稳定性审查" })).toBeVisible();
   await expect(page.getByText("跨周期结果不稳定", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "v0.7 时间稳定性与漂移监控" })).toBeVisible();
+  await expect(page.getByText("检测到性能衰减", { exact: true })).toBeVisible();
 });
 
 test("switches backtest assets from the cross-asset review", async ({ page }) => {

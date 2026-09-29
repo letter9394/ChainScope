@@ -230,6 +230,21 @@ def test_risk_backtest_endpoint_returns_horizon_statistics() -> None:
         and item["brier_confidence_interval"]["confidence_level_percent"] == 95
         for item in body["label_study"]["experiments"]
     )
+    temporal = body["temporal_stability"]
+    assert temporal["status"] in {
+        "stable", "mixed", "deteriorating", "insufficient_data",
+    }
+    assert temporal["selected_key"] == (
+        body["label_stability"]["consistent_key"]
+        if body["label_stability"]["stable"]
+        else "fixed"
+    )
+    assert len(temporal["periods"]) == 3
+    assert all(
+        period["holdout_start"] <= period["holdout_end"]
+        and period["holdout_points"] > 0
+        for period in temporal["periods"]
+    )
 
 
 def test_risk_backtest_endpoint_caches_identical_model_evaluations(monkeypatch) -> None:

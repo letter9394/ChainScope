@@ -62,6 +62,17 @@ export function RiskBacktestPanel({
     ...backtest.feature_model.feature_importance.map((item) => Math.abs(item.coefficient)),
     0.001,
   );
+  const temporalStatusCopy = {
+    stable: "时间表现稳定",
+    mixed: "时间表现混合",
+    deteriorating: "检测到性能衰减",
+    insufficient_data: "时间样本不足",
+  }[backtest.temporal_stability.status];
+  const temporalStatusClass = backtest.temporal_stability.status === "stable"
+    ? "promoted"
+    : backtest.temporal_stability.status === "deteriorating"
+      ? "rejected"
+      : "watch";
 
   return (
     <section className="panel backtest-section" id="risk-backtest">
@@ -400,6 +411,42 @@ export function RiskBacktestPanel({
           ))}
         </div>
         <p className="label-study-note">此门槛检查的是结论能否跨预测窗口复现；只有两个周期推荐同一种替代标签，才继续参加 BTC、ETH、SOL 跨资产审查。</p>
+      </section>
+
+      <section className="backtest-temporal-stability">
+        <div className="backtest-subheading">
+          <h3>v0.7 时间稳定性与漂移监控</h3>
+          <span>三轮连续留出期 · 监控当前采用标签，不自动调参</span>
+        </div>
+        <div className={`feature-verdict ${temporalStatusClass}`}>
+          <strong>{temporalStatusCopy}</strong>
+          <span>{backtest.temporal_stability.verdict}</span>
+        </div>
+        <div className="backtest-walk-summary">
+          <article><span>监控标签</span><strong>{backtest.temporal_stability.selected_label}</strong></article>
+          <article><span>Lift 变化</span><strong>{backtest.temporal_stability.lift_change > 0 ? "+" : ""}{backtest.temporal_stability.lift_change.toFixed(2)}</strong></article>
+          <article><span>Brier Skill 变化</span><strong>{backtest.temporal_stability.brier_skill_change > 0 ? "+" : ""}{backtest.temporal_stability.brier_skill_change.toFixed(3)}</strong></article>
+          <article><span>事件率变化</span><strong>{backtest.temporal_stability.event_rate_change_percent_points > 0 ? "+" : ""}{backtest.temporal_stability.event_rate_change_percent_points.toFixed(1)}pp</strong></article>
+        </div>
+        <div className="backtest-table-wrap temporal-stability-table">
+          <table>
+            <thead><tr><th>时间段</th><th>信号/事件</th><th>市场基准</th><th>精确率</th><th>Lift</th><th>Brier Skill</th><th>结论</th></tr></thead>
+            <tbody>
+              {backtest.temporal_stability.periods.map((period) => (
+                <tr key={period.period}>
+                  <td>第 {period.period} 期 · {dateFormatter.format(new Date(period.holdout_start))}—{dateFormatter.format(new Date(period.holdout_end))}</td>
+                  <td>{period.signal_count}/{period.event_days}</td>
+                  <td>{period.baseline_hit_rate_percent.toFixed(1)}%</td>
+                  <td>{period.precision_percent.toFixed(1)}%</td>
+                  <td>{period.lift.toFixed(2)}×</td>
+                  <td>{period.brier_skill_score > 0 ? "+" : ""}{period.brier_skill_score.toFixed(3)}</td>
+                  <td>{period.passed ? "稳定" : "观察"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="label-study-note">“衰减”只是一项模型监控告警：它表示最近留出期相对早期变差，不代表市场方向，也不会触发自动换模。</p>
       </section>
 
       <div className="backtest-signals">

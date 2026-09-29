@@ -8,6 +8,7 @@ from app.models import (
     RiskFeatureImportance, RiskFeatureModelFold, RiskFeatureModelResult,
     RiskConfidenceInterval, RiskLabelExperimentFold, RiskLabelExperimentResult,
     RiskLabelHorizonReview, RiskLabelStabilityResult, RiskLabelStudyResult,
+    RiskTemporalStabilityPeriod, RiskTemporalStabilityResult,
     RiskBacktestHorizon, RiskBacktestQuality, RiskBacktestRegime,
     RiskBacktestResult, RiskBacktestSensitivity, RiskBacktestSignal,
     RiskBacktestValidation, RiskBacktestWalkForward,
@@ -1198,6 +1199,8 @@ def _label_experiment_validation(
         holdout_thresholds = [event_threshold(index) for index in holdout_indexes]
         folds.append(RiskLabelExperimentFold(
             fold=fold_index + 1,
+            holdout_start=history[holdout_samples[0][0]].timestamp,
+            holdout_end=history[holdout_samples[-1][0]].timestamp,
             event_threshold_percent=round(statistics.mean(holdout_thresholds), 2),
             probability_threshold_percent=round(selected_probability_threshold * 100, 1),
             training_points=len(training_samples),
@@ -1406,6 +1409,105 @@ def _label_stability_validation(
         stable=stable,
         verdict=verdict,
         horizons=reviews,
+    )
+
+
+def _temporal_stability_validation(
+    label_study: RiskLabelStudyResult,
+    label_stability: RiskLabelStabilityResult,
+) -> RiskTemporalStabilityResult:
+    selected_key = (
+        label_stability.consistent_key
+        if label_stability.stable and label_stability.consistent_key is not None
+        else "fixed"
+    )
+    selected = next(
+        experiment
+        for experiment in label_study.experiments
+        if experiment.key == selected_key
+    )
+    periods = [
+        RiskTemporalStabilityPeriod(
+            period=fold.fold,
+            holdout_start=fold.holdout_start,
+            holdout_end=fold.holdout_end,
+            holdout_points=fold.holdout_points,
+            event_days=fold.holdout_event_count,
+            signal_count=fold.holdout_signal_count,
+            baseline_hit_rate_percent=fold.baseline_hit_rate_percent,
+            precision_percent=fold.precision_percent,
+            lift=fold.lift,
+            brier_skill_score=fold.brier_skill_score,
+            calibration_error_percent=fold.calibration_error_percent,
+            passed=(
+                fold.holdout_signal_count >= 2
+                and fold.lift > 1
+                and fold.brier_skill_score > 0
+            ),
+        )
+        for fold in selected.folds
+    ]
+    if len(periods) < 3 or sum(period.signal_count for period in periods) < 5:
+        return RiskTemporalStabilityResult(
+            model_name="v0.7 时间稳定性与漂移监控",
+            status="insufficient_data",
+            selected_key=selected.key,
+            selected_label=selected.label,
+            horizon_days=label_study.horizon_days,
+            lift_change=0.0,
+            brier_skill_change=0.0,
+            event_rate_change_percent_points=0.0,
+            verdict="独立留出期信号不足，暂不对时间稳定性下结论。",
+            periods=periods,
+        )
+
+    first = periods[0]
+    latest = periods[-1]
+    lift_change = round(latest.lift - first.lift, 2)
+    brier_skill_change = round(
+        latest.brier_skill_score - first.brier_skill_score,
+        3,
+    )
+    event_rate_change = round(
+        latest.baseline_hit_rate_percent - first.baseline_hit_rate_percent,
+        1,
+    )
+    passing_periods = sum(period.passed for period in periods)
+    if latest.passed and passing_periods >= 2:
+        status = "stable"
+        verdict = (
+            f"{selected.label}在最近留出期仍高于市场基准，且 {passing_periods}/3 个时间段"
+            "同时取得正 Lift 与正 Brier Skill；当前未发现明显性能衰减。"
+        )
+    elif (
+        latest.lift < 1
+        and lift_change <= -0.25
+    ) or (
+        latest.brier_skill_score < 0
+        and brier_skill_change <= -0.1
+    ):
+        status = "deteriorating"
+        verdict = (
+            f"{selected.label}最近留出期相对首期出现性能衰减；仅作为监控告警，"
+            "不会自动改变线上风险模型。"
+        )
+    else:
+        status = "mixed"
+        verdict = (
+            f"{selected.label}在三个时间段的结果不一致，当前保持观察，"
+            "不据此调整线上风险模型。"
+        )
+    return RiskTemporalStabilityResult(
+        model_name="v0.7 时间稳定性与漂移监控",
+        status=status,
+        selected_key=selected.key,
+        selected_label=selected.label,
+        horizon_days=label_study.horizon_days,
+        lift_change=lift_change,
+        brier_skill_change=brier_skill_change,
+        event_rate_change_percent_points=event_rate_change,
+        verdict=verdict,
+        periods=periods,
     )
 
 
@@ -1618,6 +1720,10 @@ def backtest_risk(
         if study.horizon_days == comparison_horizon
     )
     label_stability = _label_stability_validation(label_studies)
+    temporal_stability = _temporal_stability_validation(
+        label_study,
+        label_stability,
+    )
 
     return RiskBacktestResult(
         coin_id=coin_id,
@@ -1640,6 +1746,7 @@ def backtest_risk(
         feature_model=feature_model,
         label_study=label_study,
         label_stability=label_stability,
+        temporal_stability=temporal_stability,
         recent_signals=signals[-5:][::-1],
         methodology=(
             f"使用{window_days}日滚动基础风险分；仅记录风险分首次上穿阈值的日期。"
@@ -1650,6 +1757,7 @@ def backtest_risk(
             "v0.5标签实验比较固定跌幅、波动率归一化与训练集分位数标签，并报告概率校准；"
             "精确率、Lift与Brier Score使用14日区块Bootstrap估计95%置信区间；"
             "v0.6要求同一替代标签在3日与7日周期都通过完整门槛；"
+            "v0.7按三轮连续留出期监控Lift、Brier Skill与事件率变化，但不会自动调参；"
             "最终还需通过至少两个资产验证才允许影响线上模型。"
         ),
         calculated_at=datetime.now(UTC).isoformat(),

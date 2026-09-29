@@ -223,6 +223,8 @@ class RiskFeatureModelResult(BaseModel):
 
 class RiskLabelExperimentFold(BaseModel):
     fold: int
+    holdout_start: int
+    holdout_end: int
     event_threshold_percent: float
     probability_threshold_percent: float
     training_points: int
@@ -299,6 +301,34 @@ class RiskLabelStabilityResult(BaseModel):
     horizons: list[RiskLabelHorizonReview]
 
 
+class RiskTemporalStabilityPeriod(BaseModel):
+    period: int
+    holdout_start: int
+    holdout_end: int
+    holdout_points: int
+    event_days: int
+    signal_count: int
+    baseline_hit_rate_percent: float
+    precision_percent: float
+    lift: float
+    brier_skill_score: float
+    calibration_error_percent: float
+    passed: bool
+
+
+class RiskTemporalStabilityResult(BaseModel):
+    model_name: str
+    status: Literal["stable", "mixed", "deteriorating", "insufficient_data"]
+    selected_key: Literal["fixed", "volatility", "quantile"]
+    selected_label: str
+    horizon_days: int
+    lift_change: float
+    brier_skill_change: float
+    event_rate_change_percent_points: float
+    verdict: str
+    periods: list[RiskTemporalStabilityPeriod]
+
+
 class RiskBacktestResult(BaseModel):
     coin_id: str
     symbol: str
@@ -320,6 +350,7 @@ class RiskBacktestResult(BaseModel):
     feature_model: RiskFeatureModelResult
     label_study: RiskLabelStudyResult
     label_stability: RiskLabelStabilityResult
+    temporal_stability: RiskTemporalStabilityResult
     recent_signals: list[RiskBacktestSignal]
     methodology: str
     calculated_at: str

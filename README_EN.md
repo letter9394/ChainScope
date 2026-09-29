@@ -17,6 +17,7 @@ ChainScope is a full-stack Web3 market intelligence and risk alert platform buil
 - An interpretable v0.4 logistic-regression experiment compares momentum, volatility, drawdown, volume, moving-average distance, and streak features against v0.3; promotion requires strict single-asset gates and at least two passing assets across BTC, ETH, and SOL
 - A v0.5 label-and-calibration study compares fixed 3% drawdowns, volatility-normalized events, and the training set's worst 25%, reporting Brier Score, prevalence-normalized Brier Skill, ECE, and 95% confidence intervals from a 14-day block bootstrap without changing the live model unless at least two assets improve
 - A v0.6 cross-horizon stability gate requires the same alternative label to pass the complete holdout criteria at both three-day and seven-day horizons before cross-asset review
+- A v0.7 temporal stability monitor compares event prevalence, precision, lift, Brier Skill, and calibration across three consecutive holdout periods, classifying the result as stable, mixed, deteriorating, or data-insufficient without automatically changing the live model
 - Identical backtest evaluations are cached server-side for one hour and all three crypto studies are prewarmed after startup without blocking health checks; `X-ChainScope-Cache` exposes hit/miss diagnostics
 - Live CoinDesk news with source links, sentiment labels, and on-demand English-to-Chinese translation
 - Optional OpenAI-compatible news analysis with an honest rule-based fallback
