@@ -8,6 +8,8 @@ from app.database import Base, Database
 
 
 BASELINE_REVISION = "20260928_0001"
+HEAD_REVISION = "20260929_0002"
+DRIFT_TABLES = {"risk_drift_snapshots", "risk_drift_events"}
 
 
 class SchemaCompatibilityError(RuntimeError):
@@ -62,8 +64,17 @@ def upgrade_database(url_or_path: str) -> None:
 
     application_tables = set(Base.metadata.tables)
     if application_tables & existing_tables and "alembic_version" not in existing_tables:
-        _validate_current_schema(database_url)
-        command.stamp(config, BASELINE_REVISION)
+        missing_tables = application_tables - existing_tables
+        if not missing_tables:
+            _validate_current_schema(database_url)
+            command.stamp(config, HEAD_REVISION)
+        elif missing_tables <= DRIFT_TABLES and (application_tables - DRIFT_TABLES) <= existing_tables:
+            command.stamp(config, BASELINE_REVISION)
+        else:
+            raise SchemaCompatibilityError(
+                "Database schema is incomplete; missing tables: "
+                + ", ".join(sorted(missing_tables))
+            )
 
     command.upgrade(config, "head")
     _validate_current_schema(database_url)

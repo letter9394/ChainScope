@@ -17,6 +17,7 @@ import type {
   RiskAssessment,
   RiskBacktestPortfolioResult,
   RiskBacktestResult,
+  RiskDriftMonitorResult,
   WatchlistItem,
 } from "./types";
 
@@ -151,6 +152,9 @@ export const getRiskBacktestPortfolio = (signal?: AbortSignal) =>
     "/api/risk/backtests?days=1095&window_days=30&risk_threshold=60&hit_threshold_percent=3",
     signal,
   );
+
+export const getRiskDriftMonitor = (signal?: AbortSignal) =>
+  apiRequest<RiskDriftMonitorResult>("/api/risk/drift", signal);
 
 export const getNews = (coinId: string, limit = 6, signal?: AbortSignal) =>
   apiRequest<NewsResponse>(`/api/news?coin_id=${coinId}&limit=${limit}`, signal);

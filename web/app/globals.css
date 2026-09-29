@@ -286,7 +286,7 @@ main { width: min(1220px, calc(100% - 40px)); margin: 0 auto; }
 .backtest-drawdowns { display: grid; gap: 8px; margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--line); }
 .backtest-drawdowns span { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 10px; }
 .backtest-drawdowns b { color: var(--danger); font-weight: 700; }
-.backtest-quality, .backtest-walk-forward, .backtest-feature-model, .backtest-label-study, .backtest-label-stability, .backtest-temporal-stability { margin-top: 12px; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,.012); }
+.backtest-quality, .backtest-walk-forward, .backtest-feature-model, .backtest-label-study, .backtest-label-stability, .backtest-temporal-stability, .backtest-drift-monitor { margin-top: 12px; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,.012); }
 .backtest-quality-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .backtest-quality-grid article, .backtest-walk-summary article { padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.018); }
 .backtest-quality-grid span, .backtest-walk-summary span { display: block; color: var(--muted); font-size: 9px; }
@@ -324,6 +324,12 @@ main { width: min(1220px, calc(100% - 40px)); margin: 0 auto; }
 .temporal-stability-table { margin-top: 12px; }
 .temporal-stability-table table { min-width: 860px; }
 .temporal-stability-table td:nth-child(n+2), .temporal-stability-table th:nth-child(n+2) { text-align: right; }
+.drift-event { display: flex; align-items: flex-start; gap: 12px; margin-top: 10px; padding: 13px 15px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255,255,255,.018); }
+.drift-event strong { flex: 0 0 auto; font-size: 10px; }
+.drift-event span { color: var(--muted); font-size: 9px; line-height: 1.55; }
+.drift-event.warning { border-color: rgba(255,124,140,.25); background: rgba(255,124,140,.045); }
+.drift-event.warning strong { color: var(--danger); }
+.drift-history-table table { min-width: 760px; }
 .feature-model-comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
 .feature-model-comparison article { padding: 16px; border: 1px solid var(--line); border-radius: 13px; background: rgba(255,255,255,.018); }
 .feature-model-comparison span, .feature-model-comparison small { display: block; color: var(--muted); font-size: 9px; }

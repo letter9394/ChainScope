@@ -385,6 +385,50 @@ export interface RiskBacktestPortfolioResult {
   calculated_at: string;
 }
 
+export interface RiskDriftSnapshot {
+  id: number;
+  coin_id: string;
+  symbol: string;
+  status: "stable" | "mixed" | "deteriorating" | "insufficient_data";
+  selected_key: "fixed" | "volatility" | "quantile";
+  selected_label: string;
+  horizon_days: number;
+  lift_change: number;
+  brier_skill_change: number;
+  event_rate_change_percent_points: number;
+  latest_lift: number;
+  latest_brier_skill_score: number;
+  observed_at: string;
+}
+
+export interface RiskDriftEvent {
+  id: number;
+  coin_id: string;
+  symbol: string;
+  previous_status: "stable" | "mixed" | "deteriorating" | "insufficient_data";
+  current_status: "stable" | "mixed" | "deteriorating" | "insufficient_data";
+  severity: "info" | "warning";
+  title: string;
+  message: string;
+  created_at: string;
+}
+
+export interface RiskDriftAssetState {
+  coin_id: string;
+  symbol: string;
+  current: RiskDriftSnapshot | null;
+  history: RiskDriftSnapshot[];
+}
+
+export interface RiskDriftMonitorResult {
+  model_name: string;
+  status: "starting" | "ok" | "degraded" | "error" | "disabled";
+  interval_seconds: number;
+  last_checked_at: string | null;
+  assets: RiskDriftAssetState[];
+  events: RiskDriftEvent[];
+}
+
 export interface NewsArticle {
   id: string;
   title: string;

@@ -6,7 +6,9 @@ from alembic.migration import MigrationContext
 from sqlalchemy import create_engine, inspect, select, text
 
 from app.database import Base, Database, UserRow
-from app.migrations import BASELINE_REVISION, SchemaCompatibilityError, upgrade_database
+from app.migrations import (
+    DRIFT_TABLES, HEAD_REVISION, SchemaCompatibilityError, upgrade_database,
+)
 
 
 def sqlite_url(path: Path) -> str:
@@ -25,7 +27,7 @@ def test_migrations_create_a_fresh_database(tmp_path: Path) -> None:
         assert "alembic_version" in tables
         with engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-        assert version == BASELINE_REVISION
+        assert version == HEAD_REVISION
     finally:
         engine.dispose()
 
@@ -46,7 +48,18 @@ def test_migration_schema_matches_sqlalchemy_models(tmp_path: Path) -> None:
 
 def test_migrations_adopt_existing_schema_without_losing_data(tmp_path: Path) -> None:
     url = sqlite_url(tmp_path / "legacy.db")
-    legacy = Database(url)
+    legacy_engine = create_engine(url)
+    try:
+        Base.metadata.create_all(
+            legacy_engine,
+            tables=[
+                table for table in Base.metadata.sorted_tables
+                if table.name not in DRIFT_TABLES
+            ],
+        )
+    finally:
+        legacy_engine.dispose()
+    legacy = Database(url, initialize_schema=False)
     with legacy.session() as session:
         session.add(UserRow(email="legacy@example.com", password_hash="existing-hash"))
         session.commit()
@@ -62,7 +75,7 @@ def test_migrations_adopt_existing_schema_without_losing_data(tmp_path: Path) ->
         assert user.password_hash == "existing-hash"
         with migrated.engine.connect() as connection:
             version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-        assert version == BASELINE_REVISION
+        assert version == HEAD_REVISION
     finally:
         migrated.engine.dispose()
 

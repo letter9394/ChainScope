@@ -1,7 +1,7 @@
 import json
 import logging
 
-from app.observability import JsonFormatter, SchedulerRuntime
+from app.observability import JsonFormatter, RiskDriftRuntime, SchedulerRuntime
 
 
 def test_json_formatter_emits_searchable_fields() -> None:
@@ -54,3 +54,18 @@ def test_scheduler_runtime_reports_failures_without_error_text() -> None:
     assert snapshot["status"] == "error"
     assert snapshot["last_error_type"] == "RuntimeError"
     assert "contains-sensitive" not in json.dumps(snapshot)
+
+
+def test_risk_drift_runtime_reports_partial_asset_failure() -> None:
+    runtime = RiskDriftRuntime()
+
+    assert runtime.snapshot(enabled=True, interval_seconds=21_600)["status"] == "starting"
+    runtime.start_cycle()
+    runtime.complete_cycle(evaluated_assets=2, transition_events=1, failed_assets=1)
+    snapshot = runtime.snapshot(enabled=True, interval_seconds=21_600)
+
+    assert snapshot["status"] == "degraded"
+    assert snapshot["last_evaluated_assets"] == 2
+    assert snapshot["last_transition_events"] == 1
+    assert snapshot["last_failed_assets"] == 1
+    assert snapshot["last_error_type"] == "AssetEvaluationError"

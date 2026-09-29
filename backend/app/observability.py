@@ -155,3 +155,96 @@ class SchedulerRuntime:
 
 
 scheduler_runtime = SchedulerRuntime()
+
+
+class RiskDriftRuntime:
+    """Process-local telemetry for the periodic model drift monitor."""
+
+    def __init__(self) -> None:
+        self._lock = Lock()
+        self.reset()
+
+    def reset(self) -> None:
+        with self._lock:
+            self.running = False
+            self.last_started_at: str | None = None
+            self.last_completed_at: str | None = None
+            self.last_error_at: str | None = None
+            self.last_error_type: str | None = None
+            self.last_duration_ms: float | None = None
+            self.last_evaluated_assets = 0
+            self.last_transition_events = 0
+            self.last_failed_assets = 0
+            self._last_cycle_status: str | None = None
+            self._cycle_started_monotonic: float | None = None
+
+    def start_cycle(self) -> None:
+        with self._lock:
+            self.running = True
+            self.last_started_at = utc_iso()
+            self._cycle_started_monotonic = monotonic()
+
+    def complete_cycle(
+        self,
+        *,
+        evaluated_assets: int,
+        transition_events: int,
+        failed_assets: int,
+    ) -> None:
+        with self._lock:
+            self.running = False
+            self.last_completed_at = utc_iso()
+            self.last_duration_ms = self._duration_ms()
+            self.last_evaluated_assets = evaluated_assets
+            self.last_transition_events = transition_events
+            self.last_failed_assets = failed_assets
+            if failed_assets == 0:
+                self._last_cycle_status = "ok"
+                self.last_error_at = None
+                self.last_error_type = None
+            else:
+                self._last_cycle_status = "degraded"
+                self.last_error_at = utc_iso()
+                self.last_error_type = "AssetEvaluationError"
+
+    def fail_cycle(self, error: BaseException) -> None:
+        with self._lock:
+            self.running = False
+            self.last_error_at = utc_iso()
+            self.last_error_type = type(error).__name__
+            self.last_duration_ms = self._duration_ms()
+            self._last_cycle_status = "error"
+
+    def snapshot(self, *, enabled: bool, interval_seconds: int) -> dict[str, Any]:
+        with self._lock:
+            if not enabled:
+                status = "disabled"
+            elif self._last_cycle_status == "error":
+                status = "error"
+            elif self._last_cycle_status == "degraded":
+                status = "degraded"
+            elif self.last_completed_at is None:
+                status = "starting"
+            else:
+                status = "ok"
+            return {
+                "status": status,
+                "interval_seconds": interval_seconds,
+                "running": self.running,
+                "last_started_at": self.last_started_at,
+                "last_completed_at": self.last_completed_at,
+                "last_error_at": self.last_error_at,
+                "last_error_type": self.last_error_type,
+                "last_duration_ms": self.last_duration_ms,
+                "last_evaluated_assets": self.last_evaluated_assets,
+                "last_transition_events": self.last_transition_events,
+                "last_failed_assets": self.last_failed_assets,
+            }
+
+    def _duration_ms(self) -> float | None:
+        if self._cycle_started_monotonic is None:
+            return None
+        return round((monotonic() - self._cycle_started_monotonic) * 1000, 2)
+
+
+risk_drift_runtime = RiskDriftRuntime()

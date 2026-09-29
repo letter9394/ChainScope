@@ -386,6 +386,50 @@ class RiskBacktestPortfolioResult(BaseModel):
     calculated_at: str
 
 
+class RiskDriftSnapshot(BaseModel):
+    id: int
+    coin_id: str
+    symbol: str
+    status: Literal["stable", "mixed", "deteriorating", "insufficient_data"]
+    selected_key: Literal["fixed", "volatility", "quantile"]
+    selected_label: str
+    horizon_days: int
+    lift_change: float
+    brier_skill_change: float
+    event_rate_change_percent_points: float
+    latest_lift: float
+    latest_brier_skill_score: float
+    observed_at: str
+
+
+class RiskDriftEvent(BaseModel):
+    id: int
+    coin_id: str
+    symbol: str
+    previous_status: Literal["stable", "mixed", "deteriorating", "insufficient_data"]
+    current_status: Literal["stable", "mixed", "deteriorating", "insufficient_data"]
+    severity: Literal["info", "warning"]
+    title: str
+    message: str
+    created_at: str
+
+
+class RiskDriftAssetState(BaseModel):
+    coin_id: str
+    symbol: str
+    current: RiskDriftSnapshot | None = None
+    history: list[RiskDriftSnapshot] = Field(default_factory=list)
+
+
+class RiskDriftMonitorResponse(BaseModel):
+    model_name: str
+    status: Literal["starting", "ok", "degraded", "error", "disabled"]
+    interval_seconds: int
+    last_checked_at: str | None = None
+    assets: list[RiskDriftAssetState]
+    events: list[RiskDriftEvent]
+
+
 class HealthCheck(BaseModel):
     status: Literal["ok", "starting", "degraded", "disabled", "unconfigured", "error"]
     latency_ms: float | None = None
@@ -405,6 +449,19 @@ class SchedulerHealth(HealthCheck):
     last_failed_users: int = 0
 
 
+class RiskDriftHealth(HealthCheck):
+    interval_seconds: int
+    running: bool = False
+    last_started_at: str | None = None
+    last_completed_at: str | None = None
+    last_error_at: str | None = None
+    last_error_type: str | None = None
+    last_duration_ms: float | None = None
+    last_evaluated_assets: int = 0
+    last_transition_events: int = 0
+    last_failed_assets: int = 0
+
+
 class HealthResponse(BaseModel):
     status: Literal["ok", "degraded"]
     checked_at: str
@@ -414,7 +471,7 @@ class HealthResponse(BaseModel):
     market_provider: str
     database: str = "sqlite"
     background_alerts: bool = False
-    checks: dict[str, HealthCheck | SchedulerHealth] = Field(default_factory=dict)
+    checks: dict[str, HealthCheck | SchedulerHealth | RiskDriftHealth] = Field(default_factory=dict)
 
 
 class NewsArticle(BaseModel):

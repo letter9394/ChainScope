@@ -107,6 +107,49 @@ class NotificationDeliveryRow(Base):
     attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class RiskDriftSnapshotRow(Base):
+    __tablename__ = "risk_drift_snapshots"
+    __table_args__ = (
+        UniqueConstraint("coin_id", "evaluation_date", name="uq_risk_drift_coin_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    coin_id: Mapped[str] = mapped_column(String(64), index=True)
+    symbol: Mapped[str] = mapped_column(String(16))
+    evaluation_date: Mapped[str] = mapped_column(String(10))
+    status: Mapped[str] = mapped_column(String(32))
+    selected_key: Mapped[str] = mapped_column(String(32))
+    selected_label: Mapped[str] = mapped_column(String(120))
+    horizon_days: Mapped[int] = mapped_column(Integer)
+    lift_change: Mapped[float] = mapped_column(Float)
+    brier_skill_change: Mapped[float] = mapped_column(Float)
+    event_rate_change_percent_points: Mapped[float] = mapped_column(Float)
+    latest_lift: Mapped[float] = mapped_column(Float)
+    latest_brier_skill_score: Mapped[float] = mapped_column(Float)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class RiskDriftEventRow(Base):
+    __tablename__ = "risk_drift_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "coin_id", "previous_status", "current_status", "transition_date",
+            name="uq_risk_drift_transition",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    coin_id: Mapped[str] = mapped_column(String(64), index=True)
+    symbol: Mapped[str] = mapped_column(String(16))
+    previous_status: Mapped[str] = mapped_column(String(32))
+    current_status: Mapped[str] = mapped_column(String(32))
+    transition_date: Mapped[str] = mapped_column(String(10))
+    severity: Mapped[str] = mapped_column(String(16))
+    title: Mapped[str] = mapped_column(String(240))
+    message: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
 class Database:
     def __init__(self, url_or_path: str, *, initialize_schema: bool = True) -> None:
         url = self._normalize_url(url_or_path)

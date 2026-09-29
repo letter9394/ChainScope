@@ -31,6 +31,7 @@ import {
   getRisk,
   getRiskBacktest,
   getRiskBacktestPortfolio,
+  getRiskDriftMonitor,
   getWatchlist,
   loginUser,
   logoutUser,
@@ -52,6 +53,7 @@ import type {
   RiskAssessment,
   RiskBacktestPortfolioResult,
   RiskBacktestResult,
+  RiskDriftMonitorResult,
 } from "@/lib/types";
 
 interface ChartQuote {
@@ -70,6 +72,7 @@ const priceCurrency = new Intl.NumberFormat("en-US", {
 const MARKET_REFRESH_MS = 15_000;
 const RISK_REFRESH_MS = 10_000;
 const ALERT_REFRESH_MS = 60_000;
+const DRIFT_REFRESH_MS = 60_000;
 
 export default function Home() {
   const [markets, setMarkets] = useState<MarketCoin[]>([]);
@@ -80,6 +83,8 @@ export default function Home() {
   const [backtestPortfolioError, setBacktestPortfolioError] = useState<string | null>(null);
   const [backtestLoading, setBacktestLoading] = useState(true);
   const [backtestError, setBacktestError] = useState<string | null>(null);
+  const [riskDriftMonitor, setRiskDriftMonitor] = useState<RiskDriftMonitorResult | null>(null);
+  const [riskDriftError, setRiskDriftError] = useState<string | null>(null);
   const [news, setNews] = useState<NewsResponse | null>(null);
   const [watchlist, setWatchlist] = useState<string[]>([]);
   const [user, setUser] = useState<AuthUser | null | undefined>(undefined);
@@ -456,6 +461,28 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    const controller = new AbortController();
+    const loadDriftMonitor = (signal?: AbortSignal) => {
+      void getRiskDriftMonitor(signal)
+        .then((result) => {
+          setRiskDriftMonitor(result);
+          setRiskDriftError(null);
+        })
+        .catch((reason) => {
+          if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+            setRiskDriftError(reason instanceof Error ? reason.message : "模型漂移监控加载失败");
+          }
+        });
+    };
+    loadDriftMonitor(controller.signal);
+    const refreshTimer = window.setInterval(() => loadDriftMonitor(), DRIFT_REFRESH_MS);
+    return () => {
+      controller.abort();
+      window.clearInterval(refreshTimer);
+    };
+  }, []);
+
+  useEffect(() => {
     if (selectedId === "gold") return;
     const refreshTimer = window.setInterval(() => {
       void getRisk(selectedId, 30)
@@ -615,6 +642,8 @@ export default function Home() {
         backtest={riskBacktest}
         portfolio={riskBacktestPortfolio}
         portfolioError={backtestPortfolioError}
+        driftMonitor={riskDriftMonitor}
+        driftError={riskDriftError}
         loading={backtestLoading}
         error={backtestError}
         unavailable={selectedId === "gold"}

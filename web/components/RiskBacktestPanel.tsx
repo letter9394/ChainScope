@@ -1,9 +1,11 @@
-import type { RiskBacktestPortfolioResult, RiskBacktestResult } from "@/lib/types";
+import type { RiskBacktestPortfolioResult, RiskBacktestResult, RiskDriftMonitorResult } from "@/lib/types";
 
 interface RiskBacktestPanelProps {
   backtest: RiskBacktestResult | null;
   portfolio: RiskBacktestPortfolioResult | null;
   portfolioError: string | null;
+  driftMonitor: RiskDriftMonitorResult | null;
+  driftError: string | null;
   loading: boolean;
   error: string | null;
   unavailable?: boolean;
@@ -22,10 +24,19 @@ const dateFormatter = new Intl.DateTimeFormat("zh-CN", {
   day: "2-digit",
 });
 
+const driftStatusLabels = {
+  stable: "稳定",
+  mixed: "混合观察",
+  deteriorating: "性能衰减",
+  insufficient_data: "样本不足",
+} as const;
+
 export function RiskBacktestPanel({
   backtest,
   portfolio,
   portfolioError,
+  driftMonitor,
+  driftError,
   loading,
   error,
   unavailable = false,
@@ -71,6 +82,20 @@ export function RiskBacktestPanel({
   const temporalStatusClass = backtest.temporal_stability.status === "stable"
     ? "promoted"
     : backtest.temporal_stability.status === "deteriorating"
+      ? "rejected"
+      : "watch";
+  const driftAsset = driftMonitor?.assets.find((asset) => asset.coin_id === backtest.coin_id);
+  const driftCurrent = driftAsset?.current;
+  const driftEvent = driftMonitor?.events.find((event) => event.coin_id === backtest.coin_id);
+  const driftStatusCopy = driftCurrent ? {
+    stable: "持续监控稳定",
+    mixed: "持续监控观察中",
+    deteriorating: "持续监控已告警",
+    insufficient_data: "持续监控样本不足",
+  }[driftCurrent.status] : "等待首次监控快照";
+  const driftStatusClass = driftCurrent?.status === "stable"
+    ? "promoted"
+    : driftCurrent?.status === "deteriorating"
       ? "rejected"
       : "watch";
 
@@ -447,6 +472,53 @@ export function RiskBacktestPanel({
           </table>
         </div>
         <p className="label-study-note">“衰减”只是一项模型监控告警：它表示最近留出期相对早期变差，不代表市场方向，也不会触发自动换模。</p>
+      </section>
+
+      <section className="backtest-drift-monitor">
+        <div className="backtest-subheading">
+          <h3>v0.8 模型漂移告警闭环</h3>
+          <span>启动检查＋运行期间每 {Math.round((driftMonitor?.interval_seconds ?? 21_600) / 3600)} 小时复查</span>
+        </div>
+        <div className={`feature-verdict ${driftStatusClass}`}>
+          <strong>{driftStatusCopy}</strong>
+          <span>{driftError ?? (driftCurrent
+            ? `最近检查：${dateFormatter.format(new Date(driftCurrent.observed_at))}；只有状态变化才生成一次站内事件。`
+            : "后台监控完成首次三资产评估后，会在这里留下可追踪快照。")}</span>
+        </div>
+        {driftEvent ? (
+          <div className={`drift-event ${driftEvent.severity}`}>
+            <strong>{driftEvent.title}</strong>
+            <span>{driftEvent.message}</span>
+          </div>
+        ) : null}
+        {driftCurrent ? (
+          <>
+            <div className="backtest-walk-summary">
+              <article><span>当前状态</span><strong>{driftStatusLabels[driftCurrent.status]}</strong></article>
+              <article><span>最近一期 Lift</span><strong>{driftCurrent.latest_lift.toFixed(2)}×</strong></article>
+              <article><span>最近 Brier Skill</span><strong>{driftCurrent.latest_brier_skill_score > 0 ? "+" : ""}{driftCurrent.latest_brier_skill_score.toFixed(3)}</strong></article>
+              <article><span>已保存快照</span><strong>{driftAsset?.history.length ?? 0}</strong></article>
+            </div>
+            <div className="backtest-table-wrap drift-history-table">
+              <table>
+                <thead><tr><th>检查时间</th><th>状态</th><th>监控标签</th><th>最新 Lift</th><th>Brier Skill</th><th>事件率变化</th></tr></thead>
+                <tbody>
+                  {driftAsset?.history.map((snapshot) => (
+                    <tr key={snapshot.id}>
+                      <td>{dateFormatter.format(new Date(snapshot.observed_at))}</td>
+                      <td>{driftStatusLabels[snapshot.status]}</td>
+                      <td>{snapshot.selected_label}</td>
+                      <td>{snapshot.latest_lift.toFixed(2)}×</td>
+                      <td>{snapshot.latest_brier_skill_score > 0 ? "+" : ""}{snapshot.latest_brier_skill_score.toFixed(3)}</td>
+                      <td>{snapshot.event_rate_change_percent_points > 0 ? "+" : ""}{snapshot.event_rate_change_percent_points.toFixed(1)}pp</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : null}
+        <p className="label-study-note">同一天重复检查会更新同一条快照；只有状态真正发生迁移时才产生新事件，从而避免刷新、重启或缓存预热造成重复告警。</p>
       </section>
 
       <div className="backtest-signals">

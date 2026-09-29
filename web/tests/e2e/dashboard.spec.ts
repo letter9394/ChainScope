@@ -98,6 +98,45 @@ async function mockApi(page: Page) {
         calculated_at: now,
       });
     }
+    if (url.pathname === "/api/risk/drift") {
+      const current = {
+        id: 2,
+        coin_id: "bitcoin",
+        symbol: "BTC",
+        status: "deteriorating",
+        selected_key: "fixed",
+        selected_label: "固定跌幅",
+        horizon_days: 7,
+        lift_change: -0.62,
+        brier_skill_change: -0.115,
+        event_rate_change_percent_points: 4.2,
+        latest_lift: 0.73,
+        latest_brier_skill_score: -0.035,
+        observed_at: now,
+      };
+      return json(route, {
+        model_name: "v0.8 模型漂移告警闭环",
+        status: "degraded",
+        interval_seconds: 21_600,
+        last_checked_at: now,
+        assets: [
+          { coin_id: "bitcoin", symbol: "BTC", current, history: [current] },
+          { coin_id: "ethereum", symbol: "ETH", current: null, history: [] },
+          { coin_id: "solana", symbol: "SOL", current: null, history: [] },
+        ],
+        events: [{
+          id: 1,
+          coin_id: "bitcoin",
+          symbol: "BTC",
+          previous_status: "stable",
+          current_status: "deteriorating",
+          severity: "warning",
+          title: "BTC 模型检测到性能衰减",
+          message: "最近留出期表现相对早期下降，已进入人工复核队列；线上模型不会自动切换。",
+          created_at: now,
+        }],
+      });
+    }
     if (url.pathname.endsWith("/risk/backtest")) {
       const coinId = url.pathname.split("/")[3];
       const symbol = coinId === "ethereum" ? "ETH" : coinId === "solana" ? "SOL" : "BTC";
@@ -254,6 +293,9 @@ test("shows base-rate lift and walk-forward validation", async ({ page }) => {
   await expect(page.getByText("跨周期结果不稳定", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "v0.7 时间稳定性与漂移监控" })).toBeVisible();
   await expect(page.getByText("检测到性能衰减", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "v0.8 模型漂移告警闭环" })).toBeVisible();
+  await expect(page.getByText("BTC 模型检测到性能衰减", { exact: true })).toBeVisible();
+  await expect(page.locator("section.backtest-drift-monitor .backtest-walk-summary strong").filter({ hasText: "0.73×" })).toBeVisible();
 });
 
 test("switches backtest assets from the cross-asset review", async ({ page }) => {

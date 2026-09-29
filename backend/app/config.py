@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     history_cache_seconds: int = 300
     risk_backtest_cache_seconds: int = 3_600
     risk_backtest_prewarm_enabled: bool = True
+    risk_drift_monitor_enabled: bool = True
+    risk_drift_check_seconds: int = 6 * 60 * 60
     candle_cache_seconds: int = 2
     gold_candle_cache_seconds: int = 20
     derivatives_cache_seconds: int = 10

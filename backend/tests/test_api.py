@@ -71,9 +71,24 @@ def test_health_endpoint() -> None:
     assert response.json()["checks"]["scheduler"]["status"] in {"starting", "ok"}
     assert response.json()["checks"]["scheduler"]["interval_seconds"] >= 15
     assert "last_evaluated_users" in response.json()["checks"]["scheduler"]
+    assert response.json()["checks"]["risk_drift"]["status"] in {"starting", "ok"}
+    assert response.json()["checks"]["risk_drift"]["interval_seconds"] >= 3_600
+    assert "last_evaluated_assets" in response.json()["checks"]["risk_drift"]
     assert response.json()["checked_at"]
     assert response.json()["uptime_seconds"] >= 0
     assert response.headers["x-request-id"]
+
+
+def test_risk_drift_endpoint_exposes_all_supported_assets() -> None:
+    response = client.get("/api/risk/drift")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["model_name"] == "v0.8 模型漂移告警闭环"
+    assert payload["interval_seconds"] >= 3_600
+    assert [asset["coin_id"] for asset in payload["assets"]] == [
+        "bitcoin", "ethereum", "solana",
+    ]
 
 
 def test_health_endpoint_reports_database_failure_without_leaking_connection_details() -> None:

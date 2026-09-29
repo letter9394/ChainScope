@@ -29,10 +29,11 @@ from app.models import (
     NotificationSettingsResponse, NotificationSettingsUpdate, NotificationTestResponse,
     PasswordResetConfirm, PasswordResetRequest, PasswordResetRequestResponse, RiskAssessment,
     RiskBacktestPortfolioAsset, RiskBacktestPortfolioResult, RiskBacktestResult, WatchlistItem,
-    SchedulerHealth,
+    RiskDriftHealth, RiskDriftMonitorResponse, SchedulerHealth,
 )
 from app.observability import (
-    PROCESS_STARTED_MONOTONIC, configure_logging, scheduler_runtime, utc_iso,
+    PROCESS_STARTED_MONOTONIC, configure_logging, risk_drift_runtime,
+    scheduler_runtime, utc_iso,
 )
 from app.services.alerts import AlertRepository, evaluate_alert_rules
 from app.services.auth import (
@@ -43,6 +44,7 @@ from app.services.auth import (
 from app.services.cache import cache
 from app.services.csrf import create_csrf_token, validate_csrf_token
 from app.services.derivatives import get_derivatives_snapshot
+from app.services.drift import RiskDriftRepository
 from app.services.market import CoinGeckoClient, MarketDataError, SUPPORTED_COINS
 from app.services.news import get_news, translate_news
 from app.services.notifications import (
@@ -91,12 +93,16 @@ async def lifespan(_: FastAPI):
         json_logs=settings.log_json if settings.log_json is not None else settings.chain_scope_env == "production",
     )
     scheduler_runtime.reset()
+    risk_drift_runtime.reset()
     database = database_for_url(settings.resolved_database_url)
     scheduler_task = None
     backtest_prewarm_task = None
+    risk_drift_task = None
     if settings.background_alerts_enabled:
         scheduler_task = asyncio.create_task(run_alert_scheduler(database, settings))
-    if settings.risk_backtest_prewarm_enabled:
+    if settings.risk_drift_monitor_enabled:
+        risk_drift_task = asyncio.create_task(_run_risk_drift_monitor(database, settings))
+    elif settings.risk_backtest_prewarm_enabled:
         backtest_prewarm_task = asyncio.create_task(_prewarm_default_risk_backtest(settings))
     service_logger.info(
         "service_started",
@@ -105,10 +111,11 @@ async def lifespan(_: FastAPI):
             "database": "postgresql" if settings.resolved_database_url.startswith("postgresql") else "sqlite",
             "background_alerts": settings.background_alerts_enabled,
             "risk_backtest_prewarm": settings.risk_backtest_prewarm_enabled,
+            "risk_drift_monitor": settings.risk_drift_monitor_enabled,
         },
     )
     yield
-    for task in (scheduler_task, backtest_prewarm_task):
+    for task in (scheduler_task, backtest_prewarm_task, risk_drift_task):
         if task is None:
             continue
         task.cancel()
@@ -378,6 +385,12 @@ async def health(
             interval_seconds=max(15, settings.alert_check_seconds),
         )
     )
+    drift_check = RiskDriftHealth(
+        **risk_drift_runtime.snapshot(
+            enabled=settings.risk_drift_monitor_enabled,
+            interval_seconds=max(3_600, settings.risk_drift_check_seconds),
+        )
+    )
     email_configured = email_is_configured(settings)
     email_check = HealthCheck(
         status="ok" if email_configured else "unconfigured",
@@ -385,7 +398,11 @@ async def health(
     )
     overall_status = (
         "degraded"
-        if database_check.status == "error" or scheduler_check.status in {"error", "degraded"}
+        if (
+            database_check.status == "error"
+            or scheduler_check.status in {"error", "degraded"}
+            or drift_check.status in {"error", "degraded"}
+        )
         else "ok"
     )
     if database_check.status == "error":
@@ -402,6 +419,7 @@ async def health(
         checks={
             "database": database_check,
             "scheduler": scheduler_check,
+            "risk_drift": drift_check,
             "email": email_check,
         },
     )
@@ -795,6 +813,115 @@ async def _prewarm_default_risk_backtest(settings: Settings) -> None:
             "failed_assets": failed_assets,
             "duration_ms": round((perf_counter() - started_at) * 1000, 2),
         },
+    )
+
+
+async def _evaluate_risk_drift_monitor(
+    database: Database,
+    settings: Settings,
+    *,
+    market_client: CoinGeckoClient | None = None,
+) -> None:
+    risk_drift_runtime.start_cycle()
+    repository = RiskDriftRepository(database)
+    market_client = market_client or CoinGeckoClient(settings)
+    evaluated_assets = 0
+    transition_events = 0
+    failed_assets = 0
+    try:
+        for coin_id in SUPPORTED_COINS:
+            try:
+                result, _ = await _get_or_compute_risk_backtest(
+                    coin_id=coin_id,
+                    days=1095,
+                    window_days=30,
+                    risk_threshold=60,
+                    hit_threshold_percent=3.0,
+                    client=market_client,
+                    settings=settings,
+                )
+                snapshot, event = await asyncio.to_thread(repository.record_result, result)
+                evaluated_assets += 1
+                transition_events += int(event is not None)
+                service_logger.info(
+                    "risk_drift_asset_evaluated",
+                    extra={
+                        "coin_id": coin_id,
+                        "drift_status": snapshot.status,
+                        "transition_created": event is not None,
+                    },
+                )
+            except Exception as exc:
+                failed_assets += 1
+                service_logger.warning(
+                    "risk_drift_asset_failed",
+                    extra={"coin_id": coin_id, "error_type": type(exc).__name__},
+                )
+        risk_drift_runtime.complete_cycle(
+            evaluated_assets=evaluated_assets,
+            transition_events=transition_events,
+            failed_assets=failed_assets,
+        )
+        service_logger.info(
+            "risk_drift_cycle_completed",
+            extra={
+                "evaluated_assets": evaluated_assets,
+                "transition_events": transition_events,
+                "failed_assets": failed_assets,
+            },
+        )
+    except Exception as exc:
+        risk_drift_runtime.fail_cycle(exc)
+        service_logger.error(
+            "risk_drift_cycle_failed",
+            extra={"error_type": type(exc).__name__},
+        )
+
+
+async def _run_risk_drift_monitor(database: Database, settings: Settings) -> None:
+    """Evaluate at startup and periodically while this free instance is awake."""
+
+    await asyncio.sleep(5)
+    while True:
+        await _evaluate_risk_drift_monitor(database, settings)
+        await asyncio.sleep(max(3_600, settings.risk_drift_check_seconds))
+
+
+@app.get(
+    "/api/risk/drift",
+    response_model=RiskDriftMonitorResponse,
+    tags=["risk"],
+)
+async def risk_drift_monitor(
+    database: Database = Depends(get_database),
+    settings: Settings = Depends(get_settings),
+) -> RiskDriftMonitorResponse:
+    repository = RiskDriftRepository(database)
+    assets, events = await asyncio.gather(
+        asyncio.to_thread(repository.asset_states, SUPPORTED_COINS),
+        asyncio.to_thread(repository.recent_events),
+    )
+    runtime = risk_drift_runtime.snapshot(
+        enabled=settings.risk_drift_monitor_enabled,
+        interval_seconds=max(3_600, settings.risk_drift_check_seconds),
+    )
+    current_snapshots = [asset.current for asset in assets if asset.current is not None]
+    monitor_status = runtime["status"]
+    if monitor_status not in {"disabled", "error"} and any(
+        snapshot.status == "deteriorating" for snapshot in current_snapshots
+    ):
+        monitor_status = "degraded"
+    last_checked_at = max(
+        (snapshot.observed_at for snapshot in current_snapshots),
+        default=runtime["last_completed_at"],
+    )
+    return RiskDriftMonitorResponse(
+        model_name="v0.8 模型漂移告警闭环",
+        status=monitor_status,
+        interval_seconds=runtime["interval_seconds"],
+        last_checked_at=last_checked_at,
+        assets=assets,
+        events=events,
     )
 
 

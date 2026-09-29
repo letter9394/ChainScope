@@ -20,6 +20,7 @@ ChainScope 是一个面向学习与作品集展示的 Web3 智能市场分析与
 - 增加 v0.5 标签与概率校准实验，对照固定 3% 跌幅、波动率归一化和训练集最差 25% 三种事件定义，并报告 Brier Score 与 ECE；替代标签仍需至少两个资产独立改善才允许进入影子运行
 - 增加 v0.6 跨周期稳定性审查；同一替代标签必须在 3 日与 7 日留出期都通过完整门槛，才进入 BTC、ETH、SOL 跨资产复核
 - 增加 v0.7 时间稳定性与模型漂移监控；逐轮展示事件率、精确率、Lift 与 Brier Skill 的变化，并将稳定、混合、衰减和样本不足明确分级
+- 增加 v0.8 模型漂移告警闭环；后台定期保存 BTC、ETH、SOL 每日快照，只在状态真正迁移时生成一次可追溯事件，并把运行状态纳入健康检查
 - 接入 Binance Futures 资金费率、未平仓合约、多空比，并每 10 秒更新
 - 通过 WebSocket 实时累计页面打开后的强平事件，区分多单与空单强平
 - 将恐慌贪婪指数和负面新闻占比纳入复合风险评分
@@ -88,6 +89,8 @@ v0.5 在保持同一特征和同一 Walk-forward 切分的前提下，只改变�
 v0.6 不再只看默认 7 日预测窗口，而是使用完全相同的无前视流程分别验证 3 日与 7 日事件。同一种替代标签只有在两个周期都通过 Lift、Bootstrap 区间、Brier Skill、信号量和有效折数门槛，才被判定为跨周期稳定；之后仍需至少两个资产重复成立。任何周期结论不一致都会自动否决晋级，避免把只适用于单一观察窗口的偶然结果上线。
 
 v0.7 继续复用三轮连续 Walk-forward 留出期，监控当前采用标签在不同时段的市场基准、精确率、Lift、Brier Skill 与校准误差。系统会比较首期和最近一期，将结果标记为稳定、混合、性能衰减或样本不足；漂移告警只用于提示模型复核，不代表市场方向，也不会自动换模或调参。
+
+v0.8 把一次性诊断扩展为可追踪的后台监控：服务启动后及运行期间默认每 6 小时复查三个资产，每个资产每天只保留一条可更新快照；首次结果不误报，只有稳定、混合、衰减或样本不足之间真正发生变化时才写入一次事件。快照和事件通过 PostgreSQL／SQLite 持久化，`/api/risk/drift` 提供历史与最近迁移，`/api/health` 同时报告最近运行时间、成功资产数、迁移事件数和失败资产数。免费 Render 休眠时任务会暂停，因此它是“服务在线期间”的监控，不承诺全天候定时执行。
 
 相同币种、样本长度、滚动窗口和阈值的回测结果会在服务端缓存 1 小时，响应头 `X-ChainScope-Cache` 会标记 `miss` 或 `hit`。服务启动后会在不阻塞健康检查的后台任务中依次预热 BTC、ETH、SOL 三年回测；单个资产预热失败只记录安全日志，不影响其他资产、服务启动或模型结论。
 
@@ -160,6 +163,8 @@ BINANCE_FUTURES_URL=https://fapi.binance.com
 FEAR_GREED_URL=https://api.alternative.me/fng/
 RISK_BACKTEST_CACHE_SECONDS=3600
 RISK_BACKTEST_PREWARM_ENABLED=true
+RISK_DRIFT_MONITOR_ENABLED=true
+RISK_DRIFT_CHECK_SECONDS=21600
 DERIVATIVES_CACHE_SECONDS=10
 CANDLE_CACHE_SECONDS=2
 GOLD_CANDLE_CACHE_SECONDS=20
@@ -207,6 +212,7 @@ pnpm test:e2e
 | GET | `/api/coins/{coin_id}/risk` | 可解释风险报告 |
 | GET | `/api/coins/{coin_id}/risk/backtest` | 多年度回测、基准/Lift、分类指标、市场阶段与 Walk-forward 验证 |
 | GET | `/api/risk/backtests` | BTC、ETH、SOL 特征模型留出期汇总与跨资产晋级审查 |
+| GET | `/api/risk/drift` | 三资产模型漂移每日快照、状态迁移事件与后台监控状态 |
 | GET | `/api/coins/{coin_id}/derivatives` | 实时资金费率、持仓量、多空比和市场情绪 |
 | GET | `/api/news` | 新闻与情绪分析 |
 | POST | `/api/news/translate` | 将一条英文新闻按需翻译为中文 |
