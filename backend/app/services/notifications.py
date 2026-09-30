@@ -17,7 +17,8 @@ from app.database import (
     NotificationPreferenceRow, RiskDriftDeliveryRow, RiskDriftEventRow, UserRow,
 )
 from app.models import (
-    AlertEvent, NotificationSettingsResponse, NotificationSettingsUpdate, RiskDriftEvent,
+    AlertEvent, DriftEmailDelivery, NotificationSettingsResponse,
+    NotificationSettingsUpdate, RiskDriftEvent,
 )
 
 
@@ -107,6 +108,30 @@ class NotificationRepository:
             session.refresh(row)
             return row
 
+    def list_drift_deliveries(self, *, limit: int = 10) -> list[DriftEmailDelivery]:
+        with self.database.session() as session:
+            rows = list(session.execute(
+                select(RiskDriftDeliveryRow, RiskDriftEventRow)
+                .join(RiskDriftEventRow, RiskDriftEventRow.id == RiskDriftDeliveryRow.event_id)
+                .where(RiskDriftDeliveryRow.user_id == self.user_id)
+                .order_by(RiskDriftDeliveryRow.attempted_at.desc(), RiskDriftDeliveryRow.id.desc())
+                .limit(limit)
+            ))
+        return [
+            DriftEmailDelivery(
+                event_id=event.id,
+                coin_id=event.coin_id,
+                symbol=event.symbol,
+                title=event.title,
+                status=delivery.status,
+                attempted_at=(
+                    delivery.attempted_at if delivery.attempted_at.tzinfo is not None
+                    else delivery.attempted_at.replace(tzinfo=UTC)
+                ).isoformat(),
+            )
+            for delivery, event in rows
+        ]
+
 
 def preference_response(row: NotificationPreferenceRow, settings: Settings) -> NotificationSettingsResponse:
     return NotificationSettingsResponse(
@@ -178,6 +203,74 @@ class NotificationService:
                 status = await self._attempt_drift_email(user, event)
                 if status in summary:
                     summary[status] += 1
+        return summary
+
+    async def retry_failed_drift_events(self) -> dict[str, int]:
+        """Retry recent failures on later monitor cycles while consent remains active."""
+
+        summary = {"sent": 0, "failed": 0, "suppressed": 0, "deduplicated": 0}
+        if not email_is_configured(self.settings):
+            return summary
+        now = datetime.now(UTC)
+        retry_before = now - timedelta(minutes=30)
+        event_after = now - timedelta(hours=24)
+        with self.database.session() as session:
+            rows = list(session.execute(
+                select(RiskDriftDeliveryRow, RiskDriftEventRow, UserRow)
+                .join(RiskDriftEventRow, RiskDriftEventRow.id == RiskDriftDeliveryRow.event_id)
+                .join(UserRow, UserRow.id == RiskDriftDeliveryRow.user_id)
+                .join(NotificationPreferenceRow, NotificationPreferenceRow.user_id == UserRow.id)
+                .where(
+                    RiskDriftDeliveryRow.channel == "email",
+                    RiskDriftDeliveryRow.status == "failed",
+                    RiskDriftDeliveryRow.attempted_at <= retry_before,
+                    RiskDriftEventRow.created_at >= event_after,
+                    RiskDriftEventRow.severity == "warning",
+                    RiskDriftEventRow.current_status == "deteriorating",
+                    NotificationPreferenceRow.drift_email_enabled.is_(True),
+                )
+                .order_by(RiskDriftDeliveryRow.attempted_at.asc())
+                .limit(20)
+            ))
+            latest_event_by_coin = {
+                event_row.coin_id: session.scalar(
+                    select(RiskDriftEventRow.id)
+                    .where(RiskDriftEventRow.coin_id == event_row.coin_id)
+                    .order_by(RiskDriftEventRow.created_at.desc(), RiskDriftEventRow.id.desc())
+                    .limit(1)
+                )
+                for _delivery, event_row, _user in rows
+            }
+            verification_by_user = {
+                row.user_id: row for row in session.scalars(
+                    select(EmailVerificationRow).where(
+                        EmailVerificationRow.user_id.in_({user.id for _delivery, _event, user in rows})
+                    )
+                )
+            }
+
+        for _delivery, event_row, user in rows:
+            if latest_event_by_coin.get(event_row.coin_id) != event_row.id:
+                continue
+            verification = verification_by_user.get(user.id)
+            if verification is not None and verification.verified_at is None:
+                continue
+            event_created_at = event_row.created_at
+            if event_created_at.tzinfo is None:
+                event_created_at = event_created_at.replace(tzinfo=UTC)
+            event = RiskDriftEvent(
+                id=event_row.id,
+                coin_id=event_row.coin_id,
+                symbol=event_row.symbol,
+                previous_status=event_row.previous_status,
+                current_status=event_row.current_status,
+                severity=event_row.severity,
+                title=event_row.title,
+                message=event_row.message,
+                created_at=event_created_at.isoformat(),
+            )
+            status = await self._attempt_drift_email(user, event)
+            summary[status] += 1
         return summary
 
     async def _attempt_drift_email(self, user: UserRow, event: RiskDriftEvent) -> str:

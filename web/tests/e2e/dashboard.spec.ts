@@ -48,6 +48,7 @@ async function mockApi(page: Page) {
         schedule_mode: "后台定时检查",
       });
     }
+    if (url.pathname === "/api/notifications/drift-deliveries") return json(route, []);
     if (url.pathname.endsWith("/candles")) {
       const assetId = url.pathname.split("/")[3];
       const interval = url.searchParams.get("interval") ?? "15m";
@@ -319,4 +320,20 @@ test("attaches a CSRF token before account registration", async ({ page }) => {
 
   expect(request.headers()["x-csrf-token"]).toBe("e2e-csrf-token");
   await expect(page.getByRole("heading", { name: "csrf-e2e@example.com" })).toBeVisible();
+});
+
+test("shows the signed-in user's drift email delivery history", async ({ page }) => {
+  await page.route("**/api/auth/me", (route) => json(route, {
+    id: 7, email: "history@example.com", created_at: now, email_verified: true,
+  }));
+  await page.route("**/api/notifications/drift-deliveries", (route) => json(route, [{
+    event_id: 19, coin_id: "bitcoin", symbol: "BTC", title: "BTC 模型检测到性能衰减",
+    status: "sent", attempted_at: now,
+  }]));
+  await page.reload();
+
+  await expect(page.getByRole("heading", { name: "history@example.com" })).toBeVisible();
+  const history = page.getByRole("region", { name: "模型漂移邮件投递记录" });
+  await expect(history).toContainText("BTC 模型检测到性能衰减");
+  await expect(history).toContainText("已发出");
 });

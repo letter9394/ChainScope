@@ -7,6 +7,7 @@ import type {
   AuthUser,
   CandleInterval,
   CandleSeries,
+  DriftEmailDelivery,
   HistoryPoint,
   MarketCoin,
   NewsResponse,
@@ -300,6 +301,9 @@ export async function logoutUser(): Promise<void> {
 
 export const getNotificationSettings = (signal?: AbortSignal) =>
   apiRequest<NotificationSettings>("/api/notifications/settings", signal);
+
+export const getDriftEmailDeliveries = (signal?: AbortSignal) =>
+  apiRequest<DriftEmailDelivery[]>("/api/notifications/drift-deliveries", signal);
 
 export const updateNotificationSettings = (settings: Pick<NotificationSettings, "email_enabled" | "drift_email_enabled">) =>
   apiRequest<NotificationSettings>("/api/notifications/settings", undefined, {

@@ -2,13 +2,16 @@
 
 import { useEffect, useState } from "react";
 
-import type { AuthUser, NotificationSettings } from "@/lib/types";
+import type { AuthUser, DriftEmailDelivery, NotificationSettings } from "@/lib/types";
 
 type AccountMode = "login" | "register" | "forgot" | "reset";
 
 interface AccountPanelProps {
   user: AuthUser | null | undefined;
   settings: NotificationSettings | null;
+  driftDeliveries: DriftEmailDelivery[] | null;
+  driftDeliveryError: string | null;
+  onRefreshDriftDeliveries: () => Promise<void>;
   busy: boolean;
   passwordResetToken: string | null;
   emailVerificationMessage: string | null;
@@ -25,6 +28,9 @@ interface AccountPanelProps {
 export function AccountPanel({
   user,
   settings,
+  driftDeliveries,
+  driftDeliveryError,
+  onRefreshDriftDeliveries,
   busy,
   passwordResetToken,
   emailVerificationMessage,
@@ -198,6 +204,28 @@ export function AccountPanel({
           {busy ? "发送中…" : "发送测试邮件"}
         </button>
         {testMessage ? <p className="email-test-result" role="status">{testMessage}</p> : null}
+        <section className="drift-delivery-history" aria-label="模型漂移邮件投递记录">
+          <h3>最近模型邮件记录</h3>
+          {driftDeliveryError ? <p role="status">{driftDeliveryError}</p> : driftDeliveries === null ? (
+            <p>正在读取投递记录…</p>
+          ) : driftDeliveries.length === 0 ? (
+            <p>暂无记录。开启模型漂移邮件后，状态新进入性能衰减时才会产生记录。</p>
+          ) : (
+            <ul>
+              {driftDeliveries.slice(0, 5).map((delivery) => (
+                <li key={delivery.event_id}>
+                  <span><b>{delivery.symbol}</b> · {delivery.title}</span>
+                  <small>{new Date(delivery.attempted_at).toLocaleString("zh-CN", { hour12: false })}</small>
+                  <strong className={delivery.status}>
+                    {delivery.status === "sent" ? "已发出" : delivery.status === "failed" ? "发送失败" : "冷却期未发送"}
+                  </strong>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p>符合条件的失败记录会在服务在线时于后续检查中尝试重发，最长保留 24 小时的重试窗口。</p>
+          <button type="button" className="secondary-button" onClick={() => void onRefreshDriftDeliveries()}>刷新邮件记录</button>
+        </section>
       </form>
     </section>
   );

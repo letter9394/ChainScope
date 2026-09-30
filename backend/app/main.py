@@ -24,7 +24,7 @@ from app.migrations import upgrade_database
 from app.models import (
     AlertEvaluationResponse, AlertEvent, AlertRule, AlertRuleCreate, AuthCredentials,
     AuthMessageResponse, AuthUser, CandleSeries, CsrfTokenResponse, DerivativesSnapshot,
-    EmailVerificationConfirm, HealthCheck, HealthResponse, HistoryPoint, MarketCoin,
+    DriftEmailDelivery, EmailVerificationConfirm, HealthCheck, HealthResponse, HistoryPoint, MarketCoin,
     NewsResponse, NewsTranslationRequest, NewsTranslationResponse,
     NotificationSettingsResponse, NotificationSettingsUpdate, NotificationTestResponse,
     PasswordResetConfirm, PasswordResetRequest, PasswordResetRequestResponse, RiskAssessment,
@@ -860,10 +860,15 @@ async def _evaluate_risk_drift_monitor(
                     "risk_drift_asset_failed",
                     extra={"coin_id": coin_id, "error_type": type(exc).__name__},
                 )
-        if new_events and email_is_configured(settings):
+        if email_is_configured(settings):
             try:
-                delivery = await NotificationService(database, settings).deliver_drift_events(new_events)
-                service_logger.info("risk_drift_email_delivery_completed", extra=delivery)
+                notification_service = NotificationService(database, settings)
+                delivery = await notification_service.deliver_drift_events(new_events)
+                retry = await notification_service.retry_failed_drift_events()
+                service_logger.info(
+                    "risk_drift_email_delivery_completed",
+                    extra={"new_delivery": delivery, "retry_delivery": retry},
+                )
             except Exception as exc:
                 service_logger.error(
                     "risk_drift_email_delivery_failed",
@@ -1199,6 +1204,14 @@ async def update_notification_settings(
         raise HTTPException(status_code=403, detail="请先验证登录邮箱，再开启邮件通知")
     row = NotificationRepository(database, user.id).update(payload)
     return preference_response(row, settings)
+
+
+@app.get("/api/notifications/drift-deliveries", response_model=list[DriftEmailDelivery], tags=["notifications"])
+async def get_drift_email_deliveries(
+    user: UserRow = Depends(get_current_user),
+    database: Database = Depends(get_database),
+) -> list[DriftEmailDelivery]:
+    return NotificationRepository(database, user.id).list_drift_deliveries()
 
 
 @app.post("/api/notifications/test-email", response_model=NotificationTestResponse, tags=["notifications"])

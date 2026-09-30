@@ -620,6 +620,15 @@ class NotificationSettingsResponse(NotificationSettingsUpdate):
     schedule_mode: str
 
 
+class DriftEmailDelivery(BaseModel):
+    event_id: int
+    coin_id: str
+    symbol: str
+    title: str
+    status: Literal["sent", "failed", "suppressed"]
+    attempted_at: str
+
+
 class NotificationTestResponse(BaseModel):
     status: Literal["sent"]
     recipient: str

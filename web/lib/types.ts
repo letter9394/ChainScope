@@ -528,6 +528,15 @@ export interface NotificationSettings {
   schedule_mode: string;
 }
 
+export interface DriftEmailDelivery {
+  event_id: number;
+  coin_id: string;
+  symbol: string;
+  title: string;
+  status: "sent" | "failed" | "suppressed";
+  attempted_at: string;
+}
+
 export interface NotificationTestResult {
   status: "sent";
   recipient: string;

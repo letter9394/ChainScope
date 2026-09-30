@@ -23,6 +23,7 @@ import {
   deleteAlertRule,
   evaluateAlerts,
   getCurrentUser,
+  getDriftEmailDeliveries,
   getAlertEvents,
   getAlertRules,
   getMarkets,
@@ -47,6 +48,7 @@ import type {
   AlertRule,
   AlertRuleInput,
   AuthUser,
+  DriftEmailDelivery,
   MarketCoin,
   NewsResponse,
   NotificationSettings,
@@ -89,6 +91,8 @@ export default function Home() {
   const [watchlist, setWatchlist] = useState<string[]>([]);
   const [user, setUser] = useState<AuthUser | null | undefined>(undefined);
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings | null>(null);
+  const [driftEmailDeliveries, setDriftEmailDeliveries] = useState<DriftEmailDelivery[] | null>(null);
+  const [driftEmailDeliveryError, setDriftEmailDeliveryError] = useState<string | null>(null);
   const [accountBusy, setAccountBusy] = useState(false);
   const [passwordResetToken, setPasswordResetToken] = useState<string | null>(null);
   const [emailVerificationToken, setEmailVerificationToken] = useState<string | null>(null);
@@ -148,17 +152,31 @@ export default function Home() {
   }, []);
 
   const loadPrivateData = useCallback(async (signal?: AbortSignal) => {
-    const [watchlistItems, rules, events, settings] = await Promise.all([
+    const [watchlistItems, rules, events, settings, deliveryResult] = await Promise.all([
       getWatchlist(signal),
       getAlertRules(signal),
       getAlertEvents(signal),
       getNotificationSettings(signal),
+      getDriftEmailDeliveries(signal)
+        .then((items) => ({ items, error: null }))
+        .catch(() => ({ items: [], error: "邮件投递记录暂时无法加载" })),
     ]);
     setWatchlist(watchlistItems.map((item) => item.coin_id));
     setAlertRules(rules);
     setAlertEvents(events);
     setNotificationSettings(settings);
+    setDriftEmailDeliveries(deliveryResult.items);
+    setDriftEmailDeliveryError(deliveryResult.error);
   }, []);
+
+  const refreshDriftEmailDeliveries = async () => {
+    try {
+      setDriftEmailDeliveries(await getDriftEmailDeliveries());
+      setDriftEmailDeliveryError(null);
+    } catch {
+      setDriftEmailDeliveryError("邮件投递记录暂时无法加载");
+    }
+  };
 
   useEffect(() => {
     if (!emailVerificationToken) return;
@@ -228,6 +246,9 @@ export default function Home() {
         setWatchlist([]);
         setAlertRules([]);
         setAlertEvents([]);
+        setNotificationSettings(null);
+        setDriftEmailDeliveries(null);
+        setDriftEmailDeliveryError(null);
       });
     return () => controller.abort();
   }, [loadPrivateData]);
@@ -307,6 +328,8 @@ export default function Home() {
       setAlertRules([]);
       setAlertEvents([]);
       setNotificationSettings(null);
+      setDriftEmailDeliveries(null);
+      setDriftEmailDeliveryError(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "退出登录失败");
     } finally {
@@ -549,6 +572,9 @@ export default function Home() {
       <AccountPanel
         user={user}
         settings={notificationSettings}
+        driftDeliveries={driftEmailDeliveries}
+        driftDeliveryError={driftEmailDeliveryError}
+        onRefreshDriftDeliveries={refreshDriftEmailDeliveries}
         busy={accountBusy}
         passwordResetToken={passwordResetToken}
         emailVerificationMessage={emailVerificationMessage}

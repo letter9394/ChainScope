@@ -1,5 +1,5 @@
 from email.message import EmailMessage
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 import re
 from urllib.parse import unquote
@@ -147,6 +147,59 @@ def test_logged_in_user_can_enable_and_test_email(tmp_path: Path, monkeypatch) -
         _last_test_email_sent.clear()
 
 
+def test_drift_delivery_history_is_private(tmp_path: Path) -> None:
+    database = Database(str(tmp_path / "drift-history.db"))
+    settings = Settings(session_secret="drift-history-secret", background_alerts_enabled=False)
+    app.dependency_overrides[get_database] = lambda: database
+    app.dependency_overrides[get_settings] = lambda: settings
+    first = CsrfTestClient(app)
+    second = CsrfTestClient(app)
+    guest = CsrfTestClient(app)
+    try:
+        first_user = first.post(
+            "/api/auth/register",
+            json={"email": "first-history@example.com", "password": "safe-password-1"},
+        ).json()
+        second_user = second.post(
+            "/api/auth/register",
+            json={"email": "second-history@example.com", "password": "safe-password-2"},
+        ).json()
+        with database.session() as session:
+            first_event = RiskDriftEventRow(
+                coin_id="bitcoin", symbol="BTC", previous_status="stable",
+                current_status="deteriorating", transition_date="2026-09-29",
+                severity="warning", title="BTC 模型衰减", message="需要复核",
+            )
+            second_event = RiskDriftEventRow(
+                coin_id="ethereum", symbol="ETH", previous_status="stable",
+                current_status="deteriorating", transition_date="2026-09-29",
+                severity="warning", title="ETH 模型衰减", message="需要复核",
+            )
+            session.add_all([first_event, second_event])
+            session.flush()
+            session.add_all([
+                RiskDriftDeliveryRow(
+                    event_id=first_event.id, user_id=first_user["id"],
+                    channel="email", status="sent",
+                ),
+                RiskDriftDeliveryRow(
+                    event_id=second_event.id, user_id=second_user["id"],
+                    channel="email", status="failed",
+                ),
+            ])
+            session.commit()
+
+        assert guest.get("/api/notifications/drift-deliveries").status_code == 401
+        first_response = first.get("/api/notifications/drift-deliveries")
+        second_response = second.get("/api/notifications/drift-deliveries")
+        assert first_response.status_code == 200
+        assert [(item["symbol"], item["status"]) for item in first_response.json()] == [("BTC", "sent")]
+        assert [(item["symbol"], item["status"]) for item in second_response.json()] == [("ETH", "failed")]
+    finally:
+        app.dependency_overrides.pop(get_database, None)
+        app.dependency_overrides.pop(get_settings, None)
+
+
 @pytest.mark.anyio
 async def test_drift_email_requires_opt_in_and_suppresses_repeat_for_asset(tmp_path: Path, monkeypatch) -> None:
     database = Database(str(tmp_path / "drift-notifications.db"))
@@ -213,3 +266,107 @@ async def test_drift_email_requires_opt_in_and_suppresses_repeat_for_asset(tmp_p
     assert [(row.event_id, row.status) for row in deliveries] == [
         (first_id, "sent"), (second_id, "suppressed"),
     ]
+
+
+@pytest.mark.anyio
+async def test_failed_drift_email_retries_later_only_while_opted_in(tmp_path: Path, monkeypatch) -> None:
+    database = Database(str(tmp_path / "drift-retry.db"))
+    service = NotificationService(database, configured_settings())
+    with database.session() as session:
+        user = UserRow(email="retry@example.com", password_hash="hash")
+        session.add(user)
+        session.flush()
+        session.add_all([
+            EmailVerificationRow(user_id=user.id, verified_at=datetime.now(UTC)),
+            NotificationPreferenceRow(user_id=user.id, drift_email_enabled=True),
+        ])
+        event = RiskDriftEventRow(
+            coin_id="bitcoin", symbol="BTC", previous_status="stable",
+            current_status="deteriorating", transition_date="2026-09-30",
+            severity="warning", title="BTC 模型衰减", message="需要复核",
+        )
+        session.add(event)
+        session.commit()
+        event_id = event.id
+        user_id = user.id
+
+    from app.services.drift import RiskDriftRepository
+    event_model = RiskDriftRepository(database).recent_events()[0]
+
+    async def fail_to_send(_recipient, _event):
+        raise RuntimeError("provider unavailable")
+
+    async def no_wait(_seconds):
+        return None
+
+    monkeypatch.setattr(service, "_send_drift_email", fail_to_send)
+    monkeypatch.setattr("app.services.notifications.asyncio.sleep", no_wait)
+    assert (await service.deliver_drift_events([event_model]))["failed"] == 1
+    assert (await service.retry_failed_drift_events())["sent"] == 0
+
+    with database.session() as session:
+        delivery = session.scalar(select(RiskDriftDeliveryRow).where(RiskDriftDeliveryRow.event_id == event_id))
+        assert delivery is not None
+        delivery.attempted_at = datetime.now(UTC) - timedelta(hours=1)
+        session.get(NotificationPreferenceRow, user_id).drift_email_enabled = False
+        session.commit()
+    assert (await service.retry_failed_drift_events())["sent"] == 0
+
+    sent = []
+
+    async def succeed(_recipient, event):
+        sent.append(event.id)
+
+    monkeypatch.setattr(service, "_send_drift_email", succeed)
+    with database.session() as session:
+        session.get(NotificationPreferenceRow, user_id).drift_email_enabled = True
+        session.commit()
+    assert (await service.retry_failed_drift_events())["sent"] == 1
+    assert sent == [event_id]
+    assert (await service.retry_failed_drift_events())["sent"] == 0
+
+    with database.session() as session:
+        delivery = session.scalar(select(RiskDriftDeliveryRow).where(RiskDriftDeliveryRow.event_id == event_id))
+        assert delivery.status == "sent"
+
+
+@pytest.mark.anyio
+async def test_failed_drift_email_does_not_retry_after_a_newer_transition(tmp_path: Path, monkeypatch) -> None:
+    database = Database(str(tmp_path / "drift-stale-retry.db"))
+    service = NotificationService(database, configured_settings())
+    now = datetime.now(UTC)
+    with database.session() as session:
+        user = UserRow(email="stale@example.com", password_hash="hash")
+        session.add(user)
+        session.flush()
+        session.add_all([
+            EmailVerificationRow(user_id=user.id, verified_at=now),
+            NotificationPreferenceRow(user_id=user.id, drift_email_enabled=True),
+        ])
+        warning = RiskDriftEventRow(
+            coin_id="bitcoin", symbol="BTC", previous_status="stable",
+            current_status="deteriorating", transition_date="2026-09-29",
+            severity="warning", title="BTC 模型衰减", message="需要复核",
+            created_at=now - timedelta(hours=2),
+        )
+        session.add(warning)
+        session.flush()
+        session.add(RiskDriftDeliveryRow(
+            event_id=warning.id, user_id=user.id, channel="email", status="failed",
+            attempted_at=now - timedelta(hours=1),
+        ))
+        session.add(RiskDriftEventRow(
+            coin_id="bitcoin", symbol="BTC", previous_status="deteriorating",
+            current_status="stable", transition_date="2026-09-30",
+            severity="info", title="BTC 模型恢复", message="已恢复",
+            created_at=now - timedelta(minutes=10),
+        ))
+        session.commit()
+
+    async def unexpected_send(_recipient, _event):
+        raise AssertionError("A stale warning must not be sent")
+
+    monkeypatch.setattr(service, "_send_drift_email", unexpected_send)
+    assert (await service.retry_failed_drift_events()) == {
+        "sent": 0, "failed": 0, "suppressed": 0, "deduplicated": 0,
+    }
