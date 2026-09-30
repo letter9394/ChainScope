@@ -78,6 +78,44 @@ def test_upgrade_from_drift_monitor_keeps_email_opt_in_off(tmp_path: Path) -> No
         engine.dispose()
 
 
+def test_upgrade_keeps_existing_drift_delivery_rows(tmp_path: Path) -> None:
+    url = sqlite_url(tmp_path / "existing-drift-delivery.db")
+    command.upgrade(_alembic_config(url), "20260929_0003")
+    engine = create_engine(url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(text(
+                "INSERT INTO users (id, email, password_hash, created_at) "
+                "VALUES (1, 'owner@example.com', 'hash', CURRENT_TIMESTAMP)"
+            ))
+            connection.execute(text(
+                "INSERT INTO risk_drift_events "
+                "(id, coin_id, symbol, previous_status, current_status, transition_date, "
+                "severity, title, message, created_at) "
+                "VALUES (1, 'bitcoin', 'BTC', 'stable', 'deteriorating', '2026-09-30', "
+                "'warning', 'BTC drift', 'review', CURRENT_TIMESTAMP)"
+            ))
+            connection.execute(text(
+                "INSERT INTO risk_drift_deliveries "
+                "(id, event_id, user_id, channel, status, attempted_at) "
+                "VALUES (1, 1, 1, 'email', 'sent', CURRENT_TIMESTAMP)"
+            ))
+    finally:
+        engine.dispose()
+
+    upgrade_database(url)
+    engine = create_engine(url)
+    try:
+        with engine.connect() as connection:
+            row = connection.execute(text(
+                "SELECT status, provider_message_id, provider_event_at "
+                "FROM risk_drift_deliveries WHERE id = 1"
+            )).one()
+        assert row == ("sent", None, None)
+    finally:
+        engine.dispose()
+
+
 def test_migrations_adopt_existing_schema_without_losing_data(tmp_path: Path) -> None:
     url = sqlite_url(tmp_path / "legacy.db")
     legacy_engine = create_engine(url)

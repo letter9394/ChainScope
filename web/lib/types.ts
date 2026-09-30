@@ -533,8 +533,9 @@ export interface DriftEmailDelivery {
   coin_id: string;
   symbol: string;
   title: string;
-  status: "sent" | "failed" | "suppressed";
+  status: "sent" | "delivered" | "bounced" | "deferred" | "blocked" | "failed" | "suppressed";
   attempted_at: string;
+  provider_event_at?: string | null;
 }
 
 export interface NotificationTestResult {

@@ -625,8 +625,9 @@ class DriftEmailDelivery(BaseModel):
     coin_id: str
     symbol: str
     title: str
-    status: Literal["sent", "failed", "suppressed"]
+    status: Literal["sent", "delivered", "bounced", "deferred", "blocked", "failed", "suppressed"]
     attempted_at: str
+    provider_event_at: str | None = None
 
 
 class NotificationTestResponse(BaseModel):

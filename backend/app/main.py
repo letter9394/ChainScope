@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import hmac
+import json
 import logging
 import os
 import re
@@ -63,6 +64,16 @@ request_logger = logging.getLogger("chainscope.http")
 service_logger = logging.getLogger("chainscope.service")
 _request_id_pattern = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 _unsafe_methods = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+_brevo_delivery_events = {
+    "delivered": "delivered",
+    "hard_bounce": "bounced",
+    "soft_bounce": "deferred",
+    "deferred": "deferred",
+    "blocked": "blocked",
+    "invalid_email": "blocked",
+    "spam": "blocked",
+    "error": "blocked",
+}
 _risk_backtest_locks: WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = WeakKeyDictionary()
 
 
@@ -174,6 +185,7 @@ def _csrf_failure_reason(request: Request, settings: Settings) -> str | None:
         not settings.csrf_protection_enabled
         or request.method.upper() not in _unsafe_methods
         or not request.url.path.startswith("/api/")
+        or request.url.path == "/api/webhooks/brevo"
     ):
         return None
 
@@ -1227,6 +1239,60 @@ async def get_drift_email_deliveries(
     database: Database = Depends(get_database),
 ) -> list[DriftEmailDelivery]:
     return NotificationRepository(database, user.id).list_drift_deliveries()
+
+
+@app.post("/api/webhooks/brevo", tags=["notifications"])
+async def receive_brevo_delivery_event(
+    request: Request,
+    database: Database = Depends(get_database),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, str]:
+    secret = settings.brevo_webhook_token
+    if not secret or len(secret) < 32:
+        raise HTTPException(status_code=503, detail="Webhook 未配置")
+    if not hmac.compare_digest(request.headers.get("authorization", ""), f"Bearer {secret}"):
+        raise HTTPException(status_code=401, detail="Webhook 鉴权失败")
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > 16_384:
+                raise HTTPException(status_code=413, detail="Webhook 请求过大")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Webhook 长度无效") from exc
+    body = await request.body()
+    if len(body) > 16_384:
+        raise HTTPException(status_code=413, detail="Webhook 请求过大")
+    try:
+        payload = json.loads(body)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="Webhook JSON 无效") from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Webhook 数据无效")
+    event_name = payload.get("event")
+    status = _brevo_delivery_events.get(event_name) if isinstance(event_name, str) else None
+    if status is None:
+        return {"status": "ignored"}
+    message_id = payload.get("message-id")
+    recipient = payload.get("email")
+    timestamp = payload.get("ts_event")
+    if (
+        not isinstance(message_id, str) or not isinstance(recipient, str)
+        or not isinstance(timestamp, int) or isinstance(timestamp, bool)
+    ):
+        raise HTTPException(status_code=400, detail="Webhook 字段无效")
+    try:
+        event_at = datetime.fromtimestamp(timestamp, UTC)
+        result = await asyncio.to_thread(
+            NotificationRepository.record_brevo_event,
+            database,
+            message_id=message_id,
+            recipient=recipient,
+            status=status,
+            event_at=event_at,
+        )
+    except (ValueError, OverflowError, OSError) as exc:
+        raise HTTPException(status_code=400, detail="Webhook 字段无效") from exc
+    return {"status": result}
 
 
 @app.post("/api/notifications/test-email", response_model=NotificationTestResponse, tags=["notifications"])

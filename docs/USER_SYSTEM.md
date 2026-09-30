@@ -49,9 +49,12 @@
 ```env
 BREVO_API_KEY=
 BREVO_SENDER_EMAIL=
+BREVO_WEBHOOK_TOKEN=
 ```
 
 `BREVO_SENDER_EMAIL` 必须先在 Brevo 中完成验证。API Key 仅保存在 Render，不要提交到 GitHub。免费 Render 通过 HTTPS 443 端口调用 Brevo API。
+
+可选的投递状态回调需要另设至少 32 字符随机 `BREVO_WEBHOOK_TOKEN`，并在 Brevo 建立 Transactional Email Webhook：地址为 `https://chainscope-web3.onrender.com/api/webhooks/brevo`，采用 Bearer Token 鉴权，订阅送达、退信、拦截和延迟事件，禁用批量回调。未设置时账户页只会显示“服务商已接收”，不声称送达；不要把 Token 贴到对话、截图或仓库里。
 
 本地开发或允许 SMTP 出站的付费主机也可以继续使用：
 

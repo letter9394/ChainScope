@@ -329,11 +329,15 @@ test("shows the signed-in user's drift email delivery history", async ({ page })
   await page.route("**/api/notifications/drift-deliveries", (route) => json(route, [{
     event_id: 19, coin_id: "bitcoin", symbol: "BTC", title: "BTC 模型检测到性能衰减",
     status: "sent", attempted_at: now,
+  }, {
+    event_id: 20, coin_id: "ethereum", symbol: "ETH", title: "ETH 模型检测到性能衰减",
+    status: "delivered", attempted_at: now, provider_event_at: now,
   }]));
   await page.reload();
 
   await expect(page.getByRole("heading", { name: "history@example.com" })).toBeVisible();
   const history = page.getByRole("region", { name: "模型漂移邮件投递记录" });
   await expect(history).toContainText("BTC 模型检测到性能衰减");
-  await expect(history).toContainText("已发出");
+  await expect(history).toContainText("服务商已接收");
+  await expect(history).toContainText("已送达");
 });

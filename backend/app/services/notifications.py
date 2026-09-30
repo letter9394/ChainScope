@@ -30,6 +30,14 @@ SMTP_PROVIDERS = {
 }
 
 logger = logging.getLogger("chainscope.notifications")
+SUBMITTED_DRIFT_STATUSES = {"sent", "delivered", "bounced", "deferred", "blocked"}
+
+
+def normalize_brevo_message_id(value: str) -> str:
+    normalized = value.strip().removeprefix("<").removesuffix(">").strip()
+    if not normalized or len(normalized) > 255:
+        raise ValueError("Invalid Brevo message ID")
+    return normalized
 
 
 def brevo_is_configured(settings: Settings) -> bool:
@@ -128,9 +136,44 @@ class NotificationRepository:
                     delivery.attempted_at if delivery.attempted_at.tzinfo is not None
                     else delivery.attempted_at.replace(tzinfo=UTC)
                 ).isoformat(),
+                provider_event_at=(
+                    (delivery.provider_event_at if delivery.provider_event_at.tzinfo is not None
+                     else delivery.provider_event_at.replace(tzinfo=UTC)).isoformat()
+                    if delivery.provider_event_at is not None else None
+                ),
             )
             for delivery, event in rows
         ]
+
+    @staticmethod
+    def record_brevo_event(
+        database: Database, *, message_id: str, recipient: str, status: str, event_at: datetime,
+    ) -> str:
+        """Apply authenticated, chronological provider updates to one matching email."""
+
+        normalized_id = normalize_brevo_message_id(message_id)
+        with database.session() as session:
+            row = session.execute(
+                select(RiskDriftDeliveryRow, UserRow)
+                .join(UserRow, UserRow.id == RiskDriftDeliveryRow.user_id)
+                .where(RiskDriftDeliveryRow.provider_message_id == normalized_id)
+            ).one_or_none()
+            if row is None:
+                return "ignored"
+            delivery, user = row
+            if user.email.casefold() != recipient.strip().casefold():
+                return "ignored"
+            if delivery.status not in SUBMITTED_DRIFT_STATUSES:
+                return "ignored"
+            previous_at = delivery.provider_event_at
+            if previous_at is not None:
+                previous_at = previous_at if previous_at.tzinfo is not None else previous_at.replace(tzinfo=UTC)
+                if event_at <= previous_at:
+                    return "ignored"
+            delivery.status = status
+            delivery.provider_event_at = event_at
+            session.commit()
+            return "updated"
 
 
 def preference_response(row: NotificationPreferenceRow, settings: Settings) -> NotificationSettingsResponse:
@@ -282,7 +325,7 @@ class NotificationService:
                     RiskDriftDeliveryRow.channel == "email",
                 )
             )
-            if existing is not None and existing.status in {"sent", "suppressed"}:
+            if existing is not None and existing.status in SUBMITTED_DRIFT_STATUSES | {"suppressed"}:
                 return "deduplicated"
 
             cutoff = datetime.now(UTC) - timedelta(
@@ -297,7 +340,7 @@ class NotificationService:
                 .where(
                     RiskDriftDeliveryRow.user_id == user.id,
                     RiskDriftDeliveryRow.channel == "email",
-                    RiskDriftDeliveryRow.status == "sent",
+                    RiskDriftDeliveryRow.status.in_(SUBMITTED_DRIFT_STATUSES),
                     RiskDriftDeliveryRow.attempted_at >= cutoff,
                     RiskDriftEventRow.coin_id == event.coin_id,
                 )
@@ -322,11 +365,12 @@ class NotificationService:
         status = "failed"
         error_message = None
         error_type = None
+        provider_message_id = None
         for delay in (0, 1, 3):
             if delay:
                 await asyncio.sleep(delay)
             try:
-                await self._send_drift_email(user.email, event)
+                provider_message_id = await self._send_drift_email(user.email, event)
                 status = "sent"
                 error_message = None
                 break
@@ -349,6 +393,7 @@ class NotificationService:
                 user_id=user.id,
                 status=status,
                 error_message=error_message,
+                provider_message_id=provider_message_id,
             )
         log_method = logger.info if status == "sent" else logger.error
         log_method(
@@ -372,6 +417,7 @@ class NotificationService:
         user_id: int,
         status: str,
         error_message: str | None,
+        provider_message_id: str | None = None,
     ) -> None:
         if existing is None:
             existing = RiskDriftDeliveryRow(
@@ -380,12 +426,15 @@ class NotificationService:
                 channel="email",
                 status=status,
                 error_message=error_message,
+                provider_message_id=provider_message_id,
             )
             session.add(existing)
         else:
             existing.status = status
             existing.error_message = error_message
             existing.attempted_at = datetime.now(UTC)
+            existing.provider_message_id = provider_message_id
+            existing.provider_event_at = None
         session.commit()
 
     async def _attempt(
@@ -538,7 +587,7 @@ class NotificationService:
         )
         await asyncio.to_thread(self._send_message_sync, message)
 
-    async def _send_drift_email(self, recipient: str, event: RiskDriftEvent) -> None:
+    async def _send_drift_email(self, recipient: str, event: RiskDriftEvent) -> str | None:
         self._require_configuration()
         review_url = f"{self.settings.public_app_url.rstrip('/')}/#risk-backtest"
         safe_review_url = html.escape(review_url, quote=True)
@@ -562,7 +611,7 @@ class NotificationService:
                 "<p style='color:#667b74;font-size:12px'>这是模型质量监控告警，不代表市场涨跌方向，也不构成投资建议。</p>"
             ),
         )
-        await asyncio.to_thread(self._send_message_sync, message)
+        return await asyncio.to_thread(self._send_message_sync, message)
 
     def _base_message(self, recipient: str, subject: str, plain: str, html_body: str) -> EmailMessage:
         message = EmailMessage()
@@ -588,11 +637,10 @@ class NotificationService:
         if self.settings.smtp_security.lower() not in {"ssl", "starttls", "plain"}:
             raise RuntimeError("SMTP_SECURITY 必须是 ssl、starttls 或 plain")
 
-    def _send_message_sync(self, message: EmailMessage) -> None:
+    def _send_message_sync(self, message: EmailMessage) -> str | None:
         self._require_configuration()
         if brevo_is_configured(self.settings):
-            self._send_via_brevo(message)
-            return
+            return self._send_via_brevo(message)
         security = self.settings.smtp_security.lower()
         smtp_class = smtplib.SMTP_SSL if security == "ssl" else smtplib.SMTP
         with smtp_class(
@@ -606,8 +654,9 @@ class NotificationService:
                 client.ehlo()
             client.login(self.settings.smtp_username, self.settings.smtp_password)
             client.send_message(message)
+        return None
 
-    def _send_via_brevo(self, message: EmailMessage) -> None:
+    def _send_via_brevo(self, message: EmailMessage) -> str | None:
         plain_part = message.get_body(preferencelist=("plain",))
         html_part = message.get_body(preferencelist=("html",))
         payload = {
@@ -627,9 +676,19 @@ class NotificationService:
             json=payload,
             timeout=self.settings.smtp_timeout_seconds,
         )
-        if response.status_code >= 400:
+        if not 200 <= response.status_code < 300:
             try:
                 detail = str(response.json().get("message", "未知错误"))[:300]
             except (ValueError, AttributeError):
                 detail = response.text[:300]
             raise RuntimeError(f"Brevo API 返回 {response.status_code}：{detail}")
+        try:
+            message_id = response.json().get("messageId")
+        except (ValueError, AttributeError):
+            message_id = None
+        if isinstance(message_id, str):
+            try:
+                return normalize_brevo_message_id(message_id)
+            except ValueError:
+                logger.warning("brevo_message_id_unusable")
+        return None

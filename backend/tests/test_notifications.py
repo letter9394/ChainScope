@@ -5,6 +5,7 @@ import re
 from urllib.parse import unquote
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.config import Settings, get_settings
@@ -14,7 +15,7 @@ from app.database import (
 )
 from app.main import _last_test_email_sent, app, get_database
 from app.services.notifications import (
-    NotificationService,
+    NotificationRepository, NotificationService,
     email_is_configured,
     email_provider,
     masked_email,
@@ -38,6 +39,88 @@ def configured_brevo_settings() -> Settings:
         brevo_api_key="xkeysib-test-key",
         brevo_sender_email="sender@qq.com",
     )
+
+
+def test_brevo_webhook_requires_token_and_updates_matching_delivery(tmp_path: Path) -> None:
+    database = Database(str(tmp_path / "brevo-webhook.db"))
+    settings = configured_brevo_settings()
+    settings.brevo_webhook_token = "test-webhook-token-with-at-least-32-characters"
+    settings.background_alerts_enabled = False
+    app.dependency_overrides[get_database] = lambda: database
+    app.dependency_overrides[get_settings] = lambda: settings
+    with database.session() as session:
+        user = UserRow(email="owner@example.com", password_hash="hash")
+        session.add(user)
+        session.flush()
+        event = RiskDriftEventRow(
+            coin_id="bitcoin", symbol="BTC", previous_status="stable",
+            current_status="deteriorating", transition_date="2026-09-30",
+            severity="warning", title="BTC 衰减", message="复核",
+        )
+        session.add(event)
+        session.flush()
+        delivery = RiskDriftDeliveryRow(
+            event_id=event.id, user_id=user.id, channel="email", status="sent",
+            provider_message_id="tracking-123@brevo.test",
+        )
+        session.add(delivery)
+        session.commit()
+        delivery_id = delivery.id
+        user_id = user.id
+    client = TestClient(app)
+    payload = {
+        "event": "delivered", "email": "owner@example.com",
+        "message-id": "<tracking-123@brevo.test>", "ts_event": 1_780_000_000,
+    }
+    headers = {"Authorization": f"Bearer {settings.brevo_webhook_token}"}
+    try:
+        assert client.post("/api/webhooks/brevo", json=payload).status_code == 401
+        assert client.post(
+            "/api/webhooks/brevo", json=payload, headers={"Authorization": "Bearer wrong"},
+        ).status_code == 401
+        accepted = client.post("/api/webhooks/brevo", json=payload, headers=headers)
+        assert accepted.status_code == 200
+        assert accepted.json() == {"status": "updated"}
+        assert client.post("/api/webhooks/brevo", json=payload, headers=headers).json() == {"status": "ignored"}
+        assert client.post("/api/webhooks/brevo", json={
+            **payload, "event": "hard_bounce", "ts_event": 1_779_999_999,
+        }, headers=headers).json() == {"status": "ignored"}
+        assert client.post("/api/webhooks/brevo", json={
+            **payload, "email": "another@example.com", "event": "hard_bounce", "ts_event": 1_780_000_001,
+        }, headers=headers).json() == {"status": "ignored"}
+        bounced = client.post("/api/webhooks/brevo", json={
+            **payload, "event": "hard_bounce", "ts_event": 1_780_000_002,
+        }, headers=headers)
+        assert bounced.json() == {"status": "updated"}
+        with database.session() as session:
+            saved = session.get(RiskDriftDeliveryRow, delivery_id)
+            assert saved.status == "bounced"
+            assert saved.provider_event_at is not None
+        history = NotificationRepository(database, user_id).list_drift_deliveries()
+        assert history[0].status == "bounced"
+        assert history[0].provider_event_at is not None
+        assert client.post("/api/webhooks/brevo", json={
+            **payload, "message-id": "missing@brevo.test",
+        }, headers=headers).json() == {"status": "ignored"}
+        assert client.post("/api/webhooks/brevo", json={
+            **payload, "event": "opened",
+        }, headers=headers).json() == {"status": "ignored"}
+        assert client.post("/api/webhooks/brevo", content="[1]", headers=headers).status_code == 400
+    finally:
+        app.dependency_overrides.pop(get_database, None)
+        app.dependency_overrides.pop(get_settings, None)
+
+
+def test_brevo_webhook_is_closed_without_a_secret(tmp_path: Path) -> None:
+    database = Database(str(tmp_path / "brevo-webhook-off.db"))
+    settings = configured_brevo_settings()
+    app.dependency_overrides[get_database] = lambda: database
+    app.dependency_overrides[get_settings] = lambda: settings
+    try:
+        assert TestClient(app).post("/api/webhooks/brevo", json={}).status_code == 503
+    finally:
+        app.dependency_overrides.pop(get_database, None)
+        app.dependency_overrides.pop(get_settings, None)
 
 
 def test_recognizes_mainland_email_provider() -> None:
@@ -73,6 +156,41 @@ async def test_brevo_https_api_is_preferred_and_receives_email(tmp_path: Path, m
     assert captured["json"]["sender"]["email"] == "sender@qq.com"
     assert captured["json"]["to"][0]["email"] == "recipient@qq.com"
     assert "邮箱通知测试成功" in captured["json"]["subject"]
+
+
+@pytest.mark.anyio
+async def test_brevo_drift_send_saves_message_id_for_delivery_tracking(tmp_path: Path, monkeypatch) -> None:
+    database = Database(str(tmp_path / "brevo-tracking.db"))
+    service = NotificationService(database, configured_brevo_settings())
+    with database.session() as session:
+        user = UserRow(email="tracked@example.com", password_hash="hash")
+        session.add(user)
+        session.flush()
+        session.add_all([
+            EmailVerificationRow(user_id=user.id, verified_at=datetime.now(UTC)),
+            NotificationPreferenceRow(user_id=user.id, drift_email_enabled=True),
+        ])
+        session.add(RiskDriftEventRow(
+            coin_id="bitcoin", symbol="BTC", previous_status="stable",
+            current_status="deteriorating", transition_date="2026-09-30",
+            severity="warning", title="BTC 模型衰减", message="需要复核",
+        ))
+        session.commit()
+
+    class FakeResponse:
+        status_code = 201
+
+        def json(self):
+            return {"messageId": "<tracked-message@brevo.test>"}
+
+    monkeypatch.setattr("app.services.notifications.httpx.post", lambda *_args, **_kwargs: FakeResponse())
+    from app.services.drift import RiskDriftRepository
+    event = RiskDriftRepository(database).recent_events()[0]
+    assert (await service.deliver_drift_events([event]))["sent"] == 1
+    with database.session() as session:
+        delivery = session.scalar(select(RiskDriftDeliveryRow))
+        assert delivery.provider_message_id == "tracked-message@brevo.test"
+        assert delivery.status == "sent"
 
 
 @pytest.mark.anyio

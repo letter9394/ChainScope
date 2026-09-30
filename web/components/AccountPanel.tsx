@@ -215,15 +215,23 @@ export function AccountPanel({
               {driftDeliveries.slice(0, 5).map((delivery) => (
                 <li key={delivery.event_id}>
                   <span><b>{delivery.symbol}</b> · {delivery.title}</span>
-                  <small>{new Date(delivery.attempted_at).toLocaleString("zh-CN", { hour12: false })}</small>
+                  <small>{delivery.provider_event_at ? "状态更新" : "记录"}：{new Date(delivery.provider_event_at ?? delivery.attempted_at).toLocaleString("zh-CN", { hour12: false })}</small>
                   <strong className={delivery.status}>
-                    {delivery.status === "sent" ? "已发出" : delivery.status === "failed" ? "发送失败" : "冷却期未发送"}
+                    {{
+                      sent: "服务商已接收",
+                      delivered: "已送达",
+                      bounced: "退信",
+                      deferred: "投递延迟",
+                      blocked: "未送达",
+                      failed: "提交失败",
+                      suppressed: "冷却期未发送",
+                    }[delivery.status]}
                   </strong>
                 </li>
               ))}
             </ul>
           )}
-          <p>符合条件的失败记录会在服务在线时约每 30 分钟检查重发，最长保留 24 小时的重试窗口。</p>
+          <p>“服务商已接收”不等于收件箱已收到；启用 Brevo 投递回调后才会显示送达或退信。提交失败会在服务在线时约每 30 分钟检查重发，最长 24 小时。</p>
           <button type="button" className="secondary-button" onClick={() => void onRefreshDriftDeliveries()}>刷新邮件记录</button>
         </section>
       </form>

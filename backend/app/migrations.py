@@ -8,7 +8,7 @@ from app.database import Base, Database
 
 
 BASELINE_REVISION = "20260928_0001"
-HEAD_REVISION = "20260929_0003"
+HEAD_REVISION = "20260930_0004"
 DRIFT_TABLES = {"risk_drift_snapshots", "risk_drift_events", "risk_drift_deliveries"}
 
 

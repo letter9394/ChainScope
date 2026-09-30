@@ -168,6 +168,8 @@ class RiskDriftDeliveryRow(Base):
     status: Mapped[str] = mapped_column(String(24))
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    provider_message_id: Mapped[str | None] = mapped_column(String(255), unique=True, index=True, nullable=True)
+    provider_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Database:

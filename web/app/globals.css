@@ -94,8 +94,8 @@ main { width: min(1220px, calc(100% - 40px)); margin: 0 auto; }
 .drift-delivery-history li span { grid-column: 1 / -1; }
 .drift-delivery-history li small { color: var(--muted); font-size: 9px; }
 .drift-delivery-history li strong { font-size: 9px; color: var(--accent); }
-.drift-delivery-history li strong.failed { color: var(--danger); }
-.drift-delivery-history li strong.suppressed { color: var(--warning); }
+.drift-delivery-history li strong.failed, .drift-delivery-history li strong.bounced, .drift-delivery-history li strong.blocked { color: var(--danger); }
+.drift-delivery-history li strong.suppressed, .drift-delivery-history li strong.deferred { color: var(--warning); }
 .auth-gate { display: grid; place-items: start; gap: 10px; padding: 28px; }
 .auth-gate strong { font-size: 20px; }
 .auth-gate p { color: var(--muted); font-size: 12px; margin: 0; }

@@ -93,7 +93,7 @@ v0.7 继续复用三轮连续 Walk-forward 留出期，监控当前采用标签�
 
 v0.8 把一次性诊断扩展为可追踪的后台监控：服务启动后及运行期间默认每 6 小时复查三个资产，每个资产每天只保留一条可更新快照；首次结果不误报，只有稳定、混合、衰减或样本不足之间真正发生变化时才写入一次事件。快照和事件通过 PostgreSQL／SQLite 持久化，`/api/risk/drift` 提供历史与最近迁移，`/api/health` 同时报告最近运行时间、成功资产数、迁移事件数和失败资产数。免费 Render 休眠时任务会暂停，因此它是“服务在线期间”的监控，不承诺全天候定时执行。
 
-用户验证邮箱后可在账户页单独开启“模型漂移邮件”。后台只在模型状态新进入“性能衰减”时发送，默认同一用户、同一资产 24 小时内最多一封；每次发送、失败或冷却抑制均记录在 `risk_drift_deliveries`。这类邮件反映模型质量，不能作为市场方向信号。
+用户验证邮箱后可在账户页单独开启“模型漂移邮件”。后台只在模型状态新进入“性能衰减”时发送，默认同一用户、同一资产 24 小时内最多一封；每次提交、失败或冷却抑制均记录在 `risk_drift_deliveries`。Brevo 接受请求仅标记“服务商已接收”，不能当作已送达；配置经过 Bearer 鉴权的投递 Webhook 后，才按 `messageId` 更新送达、退信或延迟状态。这类邮件反映模型质量，不能作为市场方向信号。
 
 短暂发送失败后，后台在服务在线期间约每 30 分钟独立检查一次，不必等待 6 小时模型复查；仅重试距离上次尝试至少 30 分钟、事件距今不超过 24 小时、用户仍订阅且该资产没有更新状态迁移的记录。账户页可刷新查看最近投递结果；Render 免费实例休眠时不会主动执行重试。
 
@@ -186,6 +186,7 @@ BACKGROUND_ALERTS_ENABLED=true
 ALERT_CHECK_SECONDS=60
 BREVO_API_KEY=
 BREVO_SENDER_EMAIL=
+BREVO_WEBHOOK_TOKEN=
 SMTP_HOST=
 SMTP_PORT=465
 SMTP_USERNAME=
@@ -195,6 +196,8 @@ SMTP_SECURITY=ssl
 ```
 
 Render 免费实例会封锁 SMTP 端口，应配置 `BREVO_API_KEY` 与已验证的 `BREVO_SENDER_EMAIL`，通过 HTTPS API 发信。SMTP 配置保留给本地开发或允许 SMTP 出站的付费主机；Brevo 配置完整时会优先使用。黄金主图无需 Key，默认嵌入 TradingView `OANDA:XAUUSD`；`MASSIVE_API_KEY` 只用于站内备用图的精确历史模式。免费 Currencies Basic 只能读取已完成的历史分钟线，因此默认 `MASSIVE_DATA_DELAY_DAYS=2`，并使用 20 秒缓存控制请求额度。付费实时方案可把延迟改为 `0`。不要把任何真实密钥提交到 GitHub。配置 AI 密钥后，新闻模块会调用兼容的 Chat Completions 接口；否则使用本地关键词规则。
+
+投递回调为可选配置：在 Render 环境变量中设置至少 32 字符的随机 `BREVO_WEBHOOK_TOKEN`，再按 [Brevo 安全 Webhook 文档](https://developers.brevo.com/docs/secured-webhooks)建立 Transactional Email Webhook，URL 为 `https://chainscope-web3.onrender.com/api/webhooks/brevo`，认证类型为 Bearer，Token 与 Render 值相同；订阅 `delivered`、`hardBounce`、`softBounce`、`blocked`、`invalid` 和 `deferred`，不要启用批量回调。未配置 Token 时该接口返回 503；不要把 Token 放进 URL、截图或 GitHub。只有新发送且带 `messageId` 的模型漂移邮件可被回调匹配，旧记录保持“服务商已接收”。
 
 ## 运行测试
 
@@ -233,6 +236,8 @@ pnpm test:e2e
 | GET | `/api/alerts/events` | 查询预警事件记录 |
 | POST | `/api/alerts/events/{event_id}/acknowledge` | 确认一条预警事件 |
 | GET / PUT | `/api/notifications/settings` | 查询或修改邮件通知设置 |
+| GET | `/api/notifications/drift-deliveries` | 当前用户最近的模型漂移邮件投递状态 |
+| POST | `/api/webhooks/brevo` | Brevo Bearer 鉴权投递回调；不使用浏览器 CSRF Token |
 | POST | `/api/notifications/test-email` | 向当前登录邮箱发送测试邮件 |
 
 ## 目录结构
