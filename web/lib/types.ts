@@ -520,6 +520,7 @@ export interface AuthMessageResult {
 export interface NotificationSettings {
   in_app_enabled: boolean;
   email_enabled: boolean;
+  drift_email_enabled: boolean;
   email_available: boolean;
   email_provider: string;
   email_sender: string | null;

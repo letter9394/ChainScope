@@ -92,6 +92,8 @@ v0.7 继续复用三轮连续 Walk-forward 留出期，监控当前采用标签�
 
 v0.8 把一次性诊断扩展为可追踪的后台监控：服务启动后及运行期间默认每 6 小时复查三个资产，每个资产每天只保留一条可更新快照；首次结果不误报，只有稳定、混合、衰减或样本不足之间真正发生变化时才写入一次事件。快照和事件通过 PostgreSQL／SQLite 持久化，`/api/risk/drift` 提供历史与最近迁移，`/api/health` 同时报告最近运行时间、成功资产数、迁移事件数和失败资产数。免费 Render 休眠时任务会暂停，因此它是“服务在线期间”的监控，不承诺全天候定时执行。
 
+用户验证邮箱后可在账户页单独开启“模型漂移邮件”。后台只在模型状态新进入“性能衰减”时发送，默认同一用户、同一资产 24 小时内最多一封；每次发送、失败或冷却抑制均记录在 `risk_drift_deliveries`。这类邮件反映模型质量，不能作为市场方向信号。
+
 相同币种、样本长度、滚动窗口和阈值的回测结果会在服务端缓存 1 小时，响应头 `X-ChainScope-Cache` 会标记 `miss` 或 `hit`。服务启动后会在不阻塞健康检查的后台任务中依次预热 BTC、ETH、SOL 三年回测；单个资产预热失败只记录安全日志，不影响其他资产、服务启动或模型结论。
 
 ## 本地运行
@@ -165,6 +167,7 @@ RISK_BACKTEST_CACHE_SECONDS=3600
 RISK_BACKTEST_PREWARM_ENABLED=true
 RISK_DRIFT_MONITOR_ENABLED=true
 RISK_DRIFT_CHECK_SECONDS=21600
+RISK_DRIFT_EMAIL_COOLDOWN_SECONDS=86400
 DERIVATIVES_CACHE_SECONDS=10
 CANDLE_CACHE_SECONDS=2
 GOLD_CANDLE_CACHE_SECONDS=20

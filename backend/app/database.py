@@ -85,6 +85,7 @@ class NotificationPreferenceRow(Base):
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     email_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    drift_email_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     # Kept only for compatibility with databases created before email-only v1.1.
     # These fields are never exposed or used and are always written disabled.
     legacy_telegram_enabled: Mapped[bool] = mapped_column("telegram_enabled", Boolean, default=False)
@@ -148,6 +149,25 @@ class RiskDriftEventRow(Base):
     title: Mapped[str] = mapped_column(String(240))
     message: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class RiskDriftDeliveryRow(Base):
+    __tablename__ = "risk_drift_deliveries"
+    __table_args__ = (
+        UniqueConstraint(
+            "event_id", "user_id", "channel", name="uq_risk_drift_delivery_event_user_channel"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_id: Mapped[int] = mapped_column(
+        ForeignKey("risk_drift_events.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    channel: Mapped[str] = mapped_column(String(24))
+    status: Mapped[str] = mapped_column(String(24))
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class Database:

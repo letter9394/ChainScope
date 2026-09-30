@@ -1,13 +1,14 @@
 from pathlib import Path
 
 import pytest
+from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from sqlalchemy import create_engine, inspect, select, text
 
 from app.database import Base, Database, UserRow
 from app.migrations import (
-    DRIFT_TABLES, HEAD_REVISION, SchemaCompatibilityError, upgrade_database,
+    DRIFT_TABLES, HEAD_REVISION, SchemaCompatibilityError, _alembic_config, upgrade_database,
 )
 
 
@@ -42,6 +43,37 @@ def test_migration_schema_matches_sqlalchemy_models(tmp_path: Path) -> None:
             context = MigrationContext.configure(connection, opts={"compare_type": True})
             differences = compare_metadata(context, Base.metadata)
         assert differences == []
+    finally:
+        engine.dispose()
+
+
+def test_upgrade_from_drift_monitor_keeps_email_opt_in_off(tmp_path: Path) -> None:
+    url = sqlite_url(tmp_path / "existing-v08.db")
+    command.upgrade(_alembic_config(url), "20260929_0002")
+    engine = create_engine(url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(text(
+                "INSERT INTO users (email, password_hash, created_at) "
+                "VALUES ('existing@example.com', 'hash', CURRENT_TIMESTAMP)"
+            ))
+            connection.execute(text(
+                "INSERT INTO notification_preferences "
+                "(user_id, email_enabled, telegram_enabled, updated_at) "
+                "VALUES (1, 1, 0, CURRENT_TIMESTAMP)"
+            ))
+    finally:
+        engine.dispose()
+
+    upgrade_database(url)
+    engine = create_engine(url)
+    try:
+        with engine.connect() as connection:
+            saved = connection.execute(text(
+                "SELECT email_enabled, drift_email_enabled FROM notification_preferences "
+                "WHERE user_id = 1"
+            )).one()
+        assert saved == (1, 0)
     finally:
         engine.dispose()
 

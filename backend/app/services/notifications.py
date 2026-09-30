@@ -4,6 +4,7 @@ import asyncio
 import html
 import logging
 import smtplib
+from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from typing import Awaitable, Callable
 
@@ -13,9 +14,11 @@ from sqlalchemy import select
 from app.config import Settings
 from app.database import (
     Database, EmailVerificationRow, NotificationDeliveryRow,
-    NotificationPreferenceRow, UserRow,
+    NotificationPreferenceRow, RiskDriftDeliveryRow, RiskDriftEventRow, UserRow,
 )
-from app.models import AlertEvent, NotificationSettingsResponse, NotificationSettingsUpdate
+from app.models import (
+    AlertEvent, NotificationSettingsResponse, NotificationSettingsUpdate, RiskDriftEvent,
+)
 
 
 SMTP_PROVIDERS = {
@@ -97,6 +100,7 @@ class NotificationRepository:
                 )
                 session.add(row)
             row.email_enabled = payload.email_enabled
+            row.drift_email_enabled = payload.drift_email_enabled
             row.legacy_telegram_enabled = False
             row.legacy_telegram_chat_id = None
             session.commit()
@@ -107,6 +111,7 @@ class NotificationRepository:
 def preference_response(row: NotificationPreferenceRow, settings: Settings) -> NotificationSettingsResponse:
     return NotificationSettingsResponse(
         email_enabled=row.email_enabled,
+        drift_email_enabled=row.drift_email_enabled,
         email_available=email_is_configured(settings),
         email_provider=email_provider(settings),
         email_sender=masked_email(configured_sender(settings)),
@@ -134,6 +139,161 @@ class NotificationService:
 
         for event in events:
             await self._attempt(event, user_id, lambda: self._send_alert_email(user.email, event))
+
+    async def deliver_drift_events(self, events: list[RiskDriftEvent]) -> dict[str, int]:
+        """Deliver warning transitions to explicitly opted-in, verified users.
+
+        Delivery rows make the operation safe to repeat after restarts. A per-user,
+        per-asset cooldown suppresses a second warning transition without hiding the
+        audit trail.
+        """
+
+        warnings = [
+            event for event in events
+            if event.severity == "warning" and event.current_status == "deteriorating"
+        ]
+        summary = {"sent": 0, "failed": 0, "suppressed": 0, "deduplicated": 0}
+        if not warnings:
+            return summary
+
+        with self.database.session() as session:
+            recipients = list(session.execute(
+                select(UserRow, NotificationPreferenceRow)
+                .join(
+                    NotificationPreferenceRow,
+                    NotificationPreferenceRow.user_id == UserRow.id,
+                )
+                .where(NotificationPreferenceRow.drift_email_enabled.is_(True))
+            ))
+            verification_by_user = {
+                row.user_id: row
+                for row in session.scalars(select(EmailVerificationRow))
+            }
+
+        for user, _preference in recipients:
+            verification = verification_by_user.get(user.id)
+            if verification is not None and verification.verified_at is None:
+                continue
+            for event in warnings:
+                status = await self._attempt_drift_email(user, event)
+                if status in summary:
+                    summary[status] += 1
+        return summary
+
+    async def _attempt_drift_email(self, user: UserRow, event: RiskDriftEvent) -> str:
+        with self.database.session() as session:
+            existing = session.scalar(
+                select(RiskDriftDeliveryRow).where(
+                    RiskDriftDeliveryRow.event_id == event.id,
+                    RiskDriftDeliveryRow.user_id == user.id,
+                    RiskDriftDeliveryRow.channel == "email",
+                )
+            )
+            if existing is not None and existing.status in {"sent", "suppressed"}:
+                return "deduplicated"
+
+            cutoff = datetime.now(UTC) - timedelta(
+                seconds=max(0, self.settings.risk_drift_email_cooldown_seconds)
+            )
+            recent_sent = session.scalar(
+                select(RiskDriftDeliveryRow)
+                .join(
+                    RiskDriftEventRow,
+                    RiskDriftEventRow.id == RiskDriftDeliveryRow.event_id,
+                )
+                .where(
+                    RiskDriftDeliveryRow.user_id == user.id,
+                    RiskDriftDeliveryRow.channel == "email",
+                    RiskDriftDeliveryRow.status == "sent",
+                    RiskDriftDeliveryRow.attempted_at >= cutoff,
+                    RiskDriftEventRow.coin_id == event.coin_id,
+                )
+                .order_by(RiskDriftDeliveryRow.attempted_at.desc())
+                .limit(1)
+            )
+            if recent_sent is not None:
+                self._save_drift_delivery(
+                    session,
+                    existing=existing,
+                    event_id=event.id,
+                    user_id=user.id,
+                    status="suppressed",
+                    error_message=None,
+                )
+                logger.info(
+                    "risk_drift_email_suppressed",
+                    extra={"event_id": event.id, "user_id": user.id, "coin_id": event.coin_id},
+                )
+                return "suppressed"
+
+        status = "failed"
+        error_message = None
+        error_type = None
+        for delay in (0, 1, 3):
+            if delay:
+                await asyncio.sleep(delay)
+            try:
+                await self._send_drift_email(user.email, event)
+                status = "sent"
+                error_message = None
+                break
+            except Exception as exc:  # A delivery failure must not stop model monitoring.
+                error_message = str(exc)[:1000]
+                error_type = type(exc).__name__
+
+        with self.database.session() as session:
+            existing = session.scalar(
+                select(RiskDriftDeliveryRow).where(
+                    RiskDriftDeliveryRow.event_id == event.id,
+                    RiskDriftDeliveryRow.user_id == user.id,
+                    RiskDriftDeliveryRow.channel == "email",
+                )
+            )
+            self._save_drift_delivery(
+                session,
+                existing=existing,
+                event_id=event.id,
+                user_id=user.id,
+                status=status,
+                error_message=error_message,
+            )
+        log_method = logger.info if status == "sent" else logger.error
+        log_method(
+            "risk_drift_email_completed",
+            extra={
+                "delivery_status": status,
+                "event_id": event.id,
+                "user_id": user.id,
+                "coin_id": event.coin_id,
+                "error_type": error_type,
+            },
+        )
+        return status
+
+    @staticmethod
+    def _save_drift_delivery(
+        session,
+        *,
+        existing: RiskDriftDeliveryRow | None,
+        event_id: int,
+        user_id: int,
+        status: str,
+        error_message: str | None,
+    ) -> None:
+        if existing is None:
+            existing = RiskDriftDeliveryRow(
+                event_id=event_id,
+                user_id=user_id,
+                channel="email",
+                status=status,
+                error_message=error_message,
+            )
+            session.add(existing)
+        else:
+            existing.status = status
+            existing.error_message = error_message
+            existing.attempted_at = datetime.now(UTC)
+        session.commit()
 
     async def _attempt(
         self,
@@ -281,6 +441,32 @@ class NotificationService:
                 f"<p><strong>风险级别：</strong>{'高风险' if event.severity == 'critical' else '提醒'}</p>"
                 f"<p><a href='{html.escape(self.settings.public_app_url)}/#alerts'>查看 ChainScope 预警中心</a></p>"
                 "<p style='color:#667b74;font-size:12px'>本邮件仅用于市场研究，不构成投资建议。</p>"
+            ),
+        )
+        await asyncio.to_thread(self._send_message_sync, message)
+
+    async def _send_drift_email(self, recipient: str, event: RiskDriftEvent) -> None:
+        self._require_configuration()
+        review_url = f"{self.settings.public_app_url.rstrip('/')}/#risk-backtest"
+        safe_review_url = html.escape(review_url, quote=True)
+        message = self._base_message(
+            recipient=recipient,
+            subject=f"[ChainScope 模型监控] {event.title}",
+            plain=(
+                f"{event.title}\n\n{event.message}\n\n"
+                f"资产：{event.symbol}\n"
+                f"状态：{event.previous_status} → {event.current_status}\n"
+                f"查看历史回测与漂移记录：{review_url}\n\n"
+                "这是模型质量监控告警，不代表市场涨跌方向，也不构成投资建议。"
+            ),
+            html_body=(
+                f"<h2 style='margin:0 0 16px;color:#9b5b00'>{html.escape(event.title)}</h2>"
+                f"<p style='font-size:16px'>{html.escape(event.message)}</p>"
+                f"<p><strong>资产：</strong>{html.escape(event.symbol)}<br>"
+                f"<strong>状态：</strong>{html.escape(event.previous_status)} → "
+                f"{html.escape(event.current_status)}</p>"
+                f"<p><a href='{safe_review_url}'>查看历史回测与漂移记录</a></p>"
+                "<p style='color:#667b74;font-size:12px'>这是模型质量监控告警，不代表市场涨跌方向，也不构成投资建议。</p>"
             ),
         )
         await asyncio.to_thread(self._send_message_sync, message)

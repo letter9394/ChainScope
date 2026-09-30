@@ -314,7 +314,7 @@ export default function Home() {
     }
   };
 
-  const saveNotificationSettings = async (settings: Pick<NotificationSettings, "email_enabled">) => {
+  const saveNotificationSettings = async (settings: Pick<NotificationSettings, "email_enabled" | "drift_email_enabled">) => {
     setAccountBusy(true);
     try {
       setNotificationSettings(await updateNotificationSettings(settings));

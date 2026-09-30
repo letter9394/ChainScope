@@ -301,7 +301,7 @@ export async function logoutUser(): Promise<void> {
 export const getNotificationSettings = (signal?: AbortSignal) =>
   apiRequest<NotificationSettings>("/api/notifications/settings", signal);
 
-export const updateNotificationSettings = (settings: Pick<NotificationSettings, "email_enabled">) =>
+export const updateNotificationSettings = (settings: Pick<NotificationSettings, "email_enabled" | "drift_email_enabled">) =>
   apiRequest<NotificationSettings>("/api/notifications/settings", undefined, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

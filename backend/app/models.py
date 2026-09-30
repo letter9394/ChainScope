@@ -608,6 +608,7 @@ class PasswordResetRequestResponse(BaseModel):
 
 class NotificationSettingsUpdate(BaseModel):
     email_enabled: bool = False
+    drift_email_enabled: bool = False
 
 
 class NotificationSettingsResponse(NotificationSettingsUpdate):

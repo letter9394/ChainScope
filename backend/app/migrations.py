@@ -8,8 +8,8 @@ from app.database import Base, Database
 
 
 BASELINE_REVISION = "20260928_0001"
-HEAD_REVISION = "20260929_0002"
-DRIFT_TABLES = {"risk_drift_snapshots", "risk_drift_events"}
+HEAD_REVISION = "20260929_0003"
+DRIFT_TABLES = {"risk_drift_snapshots", "risk_drift_events", "risk_drift_deliveries"}
 
 
 class SchemaCompatibilityError(RuntimeError):
@@ -69,7 +69,17 @@ def upgrade_database(url_or_path: str) -> None:
             _validate_current_schema(database_url)
             command.stamp(config, HEAD_REVISION)
         elif missing_tables <= DRIFT_TABLES and (application_tables - DRIFT_TABLES) <= existing_tables:
-            command.stamp(config, BASELINE_REVISION)
+            v08_tables = {"risk_drift_snapshots", "risk_drift_events"}
+            present_v08_tables = v08_tables & existing_tables
+            if not present_v08_tables:
+                command.stamp(config, BASELINE_REVISION)
+            elif present_v08_tables == v08_tables:
+                command.stamp(config, "20260929_0002")
+            else:
+                raise SchemaCompatibilityError(
+                    "Database schema is incomplete; missing tables: "
+                    + ", ".join(sorted(missing_tables))
+                )
         else:
             raise SchemaCompatibilityError(
                 "Database schema is incomplete; missing tables: "

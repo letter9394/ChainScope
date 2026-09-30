@@ -18,7 +18,7 @@ interface AccountPanelProps {
   onClearPasswordResetToken: () => void;
   onResendEmailVerification: () => Promise<string>;
   onLogout: () => Promise<void>;
-  onSaveSettings: (settings: Pick<NotificationSettings, "email_enabled">) => Promise<void>;
+  onSaveSettings: (settings: Pick<NotificationSettings, "email_enabled" | "drift_email_enabled">) => Promise<void>;
   onSendTestEmail: () => Promise<string>;
 }
 
@@ -42,6 +42,7 @@ export function AccountPanel({
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [emailEnabled, setEmailEnabled] = useState(false);
+  const [driftEmailEnabled, setDriftEmailEnabled] = useState(false);
   const [testMessage, setTestMessage] = useState<string | null>(null);
   const [accountMessage, setAccountMessage] = useState<string | null>(null);
 
@@ -56,6 +57,7 @@ export function AccountPanel({
   useEffect(() => {
     if (!settings) return;
     setEmailEnabled(settings.email_enabled);
+    setDriftEmailEnabled(settings.drift_email_enabled);
   }, [settings]);
 
   const testEmail = async () => {
@@ -179,12 +181,16 @@ export function AccountPanel({
       </div>
       <form className="notification-form" onSubmit={(event) => {
         event.preventDefault();
-        void onSaveSettings({ email_enabled: emailEnabled });
+        void onSaveSettings({ email_enabled: emailEnabled, drift_email_enabled: driftEmailEnabled });
       }}>
         <div><strong>通知通道</strong><span>站内通知始终开启</span></div>
         <label className={!settings?.email_available || !user.email_verified ? "unavailable" : ""}>
           <input type="checkbox" checked={emailEnabled} disabled={!settings?.email_available || !user.email_verified} onChange={(event) => setEmailEnabled(event.target.checked)} /> 邮件通知
           <small>{!user.email_verified ? "完成邮箱验证后可开启" : settings?.email_available ? `通过${settings.email_provider}发送到当前登录邮箱` : "等待部署者完成 SMTP 配置"}</small>
+        </label>
+        <label className={!settings?.email_available || !user.email_verified ? "unavailable" : ""}>
+          <input type="checkbox" checked={driftEmailEnabled} disabled={!settings?.email_available || !user.email_verified} onChange={(event) => setDriftEmailEnabled(event.target.checked)} /> 模型漂移邮件
+          <small>模型状态进入性能衰减时发送；默认同一资产 24 小时内最多一封。</small>
         </label>
         {settings?.email_sender ? <p className="email-provider-note">发件地址：{settings.email_sender}</p> : null}
         <button className="primary-button" type="submit" disabled={busy || !settings}>{busy ? "保存中…" : "保存通知设置"}</button>

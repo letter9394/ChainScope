@@ -39,6 +39,7 @@ async function mockApi(page: Page) {
     if (url.pathname === "/api/notifications/settings") {
       return json(route, {
         email_enabled: false,
+        drift_email_enabled: false,
         in_app_enabled: true,
         email_available: false,
         email_provider: "尚未配置",

@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     risk_backtest_prewarm_enabled: bool = True
     risk_drift_monitor_enabled: bool = True
     risk_drift_check_seconds: int = 6 * 60 * 60
+    risk_drift_email_cooldown_seconds: int = 24 * 60 * 60
     candle_cache_seconds: int = 2
     gold_candle_cache_seconds: int = 20
     derivatives_cache_seconds: int = 10

@@ -828,6 +828,7 @@ async def _evaluate_risk_drift_monitor(
     evaluated_assets = 0
     transition_events = 0
     failed_assets = 0
+    new_events = []
     try:
         for coin_id in SUPPORTED_COINS:
             try:
@@ -843,6 +844,8 @@ async def _evaluate_risk_drift_monitor(
                 snapshot, event = await asyncio.to_thread(repository.record_result, result)
                 evaluated_assets += 1
                 transition_events += int(event is not None)
+                if event is not None:
+                    new_events.append(event)
                 service_logger.info(
                     "risk_drift_asset_evaluated",
                     extra={
@@ -856,6 +859,15 @@ async def _evaluate_risk_drift_monitor(
                 service_logger.warning(
                     "risk_drift_asset_failed",
                     extra={"coin_id": coin_id, "error_type": type(exc).__name__},
+                )
+        if new_events and email_is_configured(settings):
+            try:
+                delivery = await NotificationService(database, settings).deliver_drift_events(new_events)
+                service_logger.info("risk_drift_email_delivery_completed", extra=delivery)
+            except Exception as exc:
+                service_logger.error(
+                    "risk_drift_email_delivery_failed",
+                    extra={"error_type": type(exc).__name__},
                 )
         risk_drift_runtime.complete_cycle(
             evaluated_assets=evaluated_assets,
@@ -1181,9 +1193,9 @@ async def update_notification_settings(
     database: Database = Depends(get_database),
     settings: Settings = Depends(get_settings),
 ) -> NotificationSettingsResponse:
-    if payload.email_enabled and not email_is_configured(settings):
+    if (payload.email_enabled or payload.drift_email_enabled) and not email_is_configured(settings):
         raise HTTPException(status_code=409, detail="管理员尚未完整配置邮件发送服务")
-    if payload.email_enabled and not UserRepository(database).is_email_verified(user.id):
+    if (payload.email_enabled or payload.drift_email_enabled) and not UserRepository(database).is_email_verified(user.id):
         raise HTTPException(status_code=403, detail="请先验证登录邮箱，再开启邮件通知")
     row = NotificationRepository(database, user.id).update(payload)
     return preference_response(row, settings)
