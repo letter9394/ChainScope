@@ -1,5 +1,9 @@
 from datetime import UTC, datetime
 
+import pytest
+
+import app.main as main_module
+from app.config import Settings
 from app.database import Database
 from app.models import (
     RiskBacktestResult, RiskTemporalStabilityPeriod, RiskTemporalStabilityResult,
@@ -109,3 +113,46 @@ def test_asset_states_include_assets_without_history(tmp_path) -> None:
     assert states[0].current.status == "mixed"
     assert states[1].current is None
     assert states[1].history == []
+
+
+@pytest.mark.anyio
+async def test_email_retry_ticks_do_not_repeat_expensive_drift_checks(tmp_path, monkeypatch) -> None:
+    database = Database(str(tmp_path / "drift-schedule.db"))
+    settings = Settings(
+        brevo_api_key="test-key", brevo_sender_email="sender@example.com",
+        risk_drift_check_seconds=2 * 60 * 60,
+    )
+    clock = [0]
+    sleeps = []
+    evaluations = []
+    retries = []
+
+    class StopScheduler(Exception):
+        pass
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+        if len(sleeps) == 6:
+            raise StopScheduler
+        clock[0] += seconds
+
+    async def fake_evaluate(_database, _settings):
+        evaluations.append(clock[0])
+
+    async def fake_retry(_self):
+        retries.append(clock[0])
+        if len(retries) == 1:
+            raise RuntimeError("temporary provider failure")
+        return {"sent": 0, "failed": 0, "suppressed": 0, "deduplicated": 0}
+
+    monkeypatch.setattr(main_module, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(main_module.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(main_module, "_evaluate_risk_drift_monitor", fake_evaluate)
+    monkeypatch.setattr(main_module.NotificationService, "retry_failed_drift_events", fake_retry)
+
+    with pytest.raises(StopScheduler):
+        await main_module._run_risk_drift_monitor(database, settings)
+
+    assert evaluations == [5, 7_205]
+    assert retries == [1_805, 3_605, 5_405]
+    assert sleeps == [5, 1_800, 1_800, 1_800, 1_800, 1_800]

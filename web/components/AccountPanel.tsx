@@ -223,7 +223,7 @@ export function AccountPanel({
               ))}
             </ul>
           )}
-          <p>符合条件的失败记录会在服务在线时于后续检查中尝试重发，最长保留 24 小时的重试窗口。</p>
+          <p>符合条件的失败记录会在服务在线时约每 30 分钟检查重发，最长保留 24 小时的重试窗口。</p>
           <button type="button" className="secondary-button" onClick={() => void onRefreshDriftDeliveries()}>刷新邮件记录</button>
         </section>
       </form>

@@ -896,12 +896,27 @@ async def _evaluate_risk_drift_monitor(
 
 
 async def _run_risk_drift_monitor(database: Database, settings: Settings) -> None:
-    """Evaluate at startup and periodically while this free instance is awake."""
+    """Keep costly model checks separate from lightweight email retries."""
 
     await asyncio.sleep(5)
+    await _evaluate_risk_drift_monitor(database, settings)
+    drift_interval = max(3_600, settings.risk_drift_check_seconds)
+    retry_interval = 30 * 60 if email_is_configured(settings) else drift_interval
+    next_drift_at = monotonic() + drift_interval
     while True:
-        await _evaluate_risk_drift_monitor(database, settings)
-        await asyncio.sleep(max(3_600, settings.risk_drift_check_seconds))
+        await asyncio.sleep(min(retry_interval, max(0, next_drift_at - monotonic())))
+        if monotonic() >= next_drift_at:
+            await _evaluate_risk_drift_monitor(database, settings)
+            next_drift_at = monotonic() + drift_interval
+        elif email_is_configured(settings):
+            try:
+                retry = await NotificationService(database, settings).retry_failed_drift_events()
+                service_logger.info("risk_drift_email_retry_completed", extra=retry)
+            except Exception as exc:
+                service_logger.error(
+                    "risk_drift_email_retry_failed",
+                    extra={"error_type": type(exc).__name__},
+                )
 
 
 @app.get(
