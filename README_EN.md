@@ -4,6 +4,10 @@
 
 ChainScope is a full-stack Web3 market intelligence and risk alert platform built as a portfolio and learning project. It combines crypto and spot-gold quotes, professional candlestick charts, bilingual news, and explainable risk indicators in one interface. Version 1.1 adds email accounts, per-user isolation, PostgreSQL persistence, server-side alert checks, in-app notifications, and HTTPS/SMTP email delivery.
 
+**Live demo:** [ChainScope](https://chainscope-web3.onrender.com/) · [alert acceptance screenshot](docs/assets/alert-acceptance-2026-10-05.png) · [portfolio case study (Chinese)](docs/PORTFOLIO.md#线上预警验收)
+
+On October 5, 2026, a temporary BTC risk-score threshold of `≥ 0` produced an in-app alert on the live service. The user confirmed receipt of the alert email and that a repeat check created no new event. The zero threshold was used only for acceptance testing, not as a recommended monitoring setting.
+
 ## Highlights
 
 - Near-real-time BTC, ETH, and SOL quotes via Binance WebSocket, plus 15-second XAU and REST snapshot refreshes
