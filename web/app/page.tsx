@@ -65,6 +65,8 @@ interface ChartQuote {
   isProxy: boolean;
 }
 
+type AlertFeedback = { tone: "success" | "warning" | "error"; message: string };
+
 const priceCurrency = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
@@ -100,6 +102,8 @@ export default function Home() {
   const [alertRules, setAlertRules] = useState<AlertRule[]>([]);
   const [alertEvents, setAlertEvents] = useState<AlertEvent[]>([]);
   const [alertsBusy, setAlertsBusy] = useState(false);
+  const [alertsLoading, setAlertsLoading] = useState(true);
+  const [alertFeedback, setAlertFeedback] = useState<AlertFeedback | null>(null);
   const [watchlistBusy, setWatchlistBusy] = useState(false);
   const [loadingMarkets, setLoadingMarkets] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(true);
@@ -152,21 +156,26 @@ export default function Home() {
   }, []);
 
   const loadPrivateData = useCallback(async (signal?: AbortSignal) => {
-    const [watchlistItems, rules, events, settings, deliveryResult] = await Promise.all([
-      getWatchlist(signal),
-      getAlertRules(signal),
-      getAlertEvents(signal),
-      getNotificationSettings(signal),
-      getDriftEmailDeliveries(signal)
-        .then((items) => ({ items, error: null }))
-        .catch(() => ({ items: [], error: "邮件投递记录暂时无法加载" })),
-    ]);
-    setWatchlist(watchlistItems.map((item) => item.coin_id));
-    setAlertRules(rules);
-    setAlertEvents(events);
-    setNotificationSettings(settings);
-    setDriftEmailDeliveries(deliveryResult.items);
-    setDriftEmailDeliveryError(deliveryResult.error);
+    setAlertsLoading(true);
+    try {
+      const [watchlistItems, rules, events, settings, deliveryResult] = await Promise.all([
+        getWatchlist(signal),
+        getAlertRules(signal),
+        getAlertEvents(signal),
+        getNotificationSettings(signal),
+        getDriftEmailDeliveries(signal)
+          .then((items) => ({ items, error: null }))
+          .catch(() => ({ items: [], error: "邮件投递记录暂时无法加载" })),
+      ]);
+      setWatchlist(watchlistItems.map((item) => item.coin_id));
+      setAlertRules(rules);
+      setAlertEvents(events);
+      setNotificationSettings(settings);
+      setDriftEmailDeliveries(deliveryResult.items);
+      setDriftEmailDeliveryError(deliveryResult.error);
+    } finally {
+      setAlertsLoading(false);
+    }
   }, []);
 
   const refreshDriftEmailDeliveries = async () => {
@@ -214,11 +223,21 @@ export default function Home() {
   const checkAlerts = useCallback(async () => {
     if (!user) return;
     setAlertsBusy(true);
+    setAlertFeedback(null);
     try {
-      await evaluateAlerts();
+      const result = await evaluateAlerts();
       await loadAlertData();
+      setAlertFeedback({
+        tone: "success",
+        message: result.triggered_events.length > 0
+          ? `检查完成，新增 ${result.triggered_events.length} 条预警。请在预警事件区查看并确认。`
+          : "检查完成，本次没有新增预警；规则会继续监控。",
+      });
+      setError(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "预警检查失败");
+      const message = reason instanceof Error ? reason.message : "预警检查失败";
+      setAlertFeedback({ tone: "error", message: `检查失败：${message}` });
+      setError(message);
     } finally {
       setAlertsBusy(false);
     }
@@ -243,6 +262,7 @@ export default function Home() {
       })
       .catch(() => {
         setUser(null);
+        setAlertsLoading(false);
         setWatchlist([]);
         setAlertRules([]);
         setAlertEvents([]);
@@ -327,6 +347,8 @@ export default function Home() {
       setWatchlist([]);
       setAlertRules([]);
       setAlertEvents([]);
+      setAlertFeedback(null);
+      setAlertsLoading(false);
       setNotificationSettings(null);
       setDriftEmailDeliveries(null);
       setDriftEmailDeliveryError(null);
@@ -382,13 +404,30 @@ export default function Home() {
 
   const createRule = async (input: AlertRuleInput) => {
     setAlertsBusy(true);
+    setAlertFeedback(null);
     try {
-      await createAlertRule(input);
-      await evaluateAlerts();
-      await loadAlertData();
+      const created = await createAlertRule(input);
+      setAlertRules((current) => [created, ...current]);
+      try {
+        const result = await evaluateAlerts();
+        await loadAlertData();
+        setAlertFeedback({
+          tone: "success",
+          message: result.triggered_events.length > 0
+            ? "规则已保存，并产生了新预警；请在事件列表中查看。"
+            : "规则已保存并完成首次检查；达到条件时会记录预警。",
+        });
+      } catch {
+        setAlertFeedback({
+          tone: "warning",
+          message: "规则已保存，但首次检查未完成。请稍后点击“立即检查”；后台也会继续检查。",
+        });
+      }
       setError(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "预警规则创建失败");
+      const message = reason instanceof Error ? reason.message : "预警规则创建失败";
+      setAlertFeedback({ tone: "error", message: `保存失败：${message}` });
+      setError(message);
     } finally {
       setAlertsBusy(false);
     }
@@ -396,12 +435,17 @@ export default function Home() {
 
   const deleteRule = async (ruleId: number) => {
     setAlertsBusy(true);
+    setAlertFeedback(null);
     try {
       await deleteAlertRule(ruleId);
       setAlertRules((rules) => rules.filter((rule) => rule.id !== ruleId));
+      setAlertEvents((events) => events.filter((event) => event.rule_id !== ruleId));
+      setAlertFeedback({ tone: "success", message: "规则及关联的预警历史已删除。" });
       setError(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "预警规则删除失败");
+      const message = reason instanceof Error ? reason.message : "预警规则删除失败";
+      setAlertFeedback({ tone: "error", message: `删除失败：${message}` });
+      setError(message);
     } finally {
       setAlertsBusy(false);
     }
@@ -409,12 +453,16 @@ export default function Home() {
 
   const acknowledgeEvent = async (eventId: number) => {
     setAlertsBusy(true);
+    setAlertFeedback(null);
     try {
       const acknowledged = await acknowledgeAlertEvent(eventId);
       setAlertEvents((events) => events.map((event) => event.id === eventId ? acknowledged : event));
+      setAlertFeedback({ tone: "success", message: "已确认这条预警；记录会保留在历史中。" });
       setError(null);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "预警确认失败");
+      const message = reason instanceof Error ? reason.message : "预警确认失败";
+      setAlertFeedback({ tone: "error", message: `确认失败：${message}` });
+      setError(message);
     } finally {
       setAlertsBusy(false);
     }
@@ -678,9 +726,11 @@ export default function Home() {
 
       <AlertCenter
         authenticated={Boolean(user)}
+        loading={alertsLoading || user === undefined}
         rules={alertRules}
         events={alertEvents}
         busy={alertsBusy}
+        feedback={alertFeedback}
         onCreate={createRule}
         onDelete={deleteRule}
         onAcknowledge={acknowledgeEvent}

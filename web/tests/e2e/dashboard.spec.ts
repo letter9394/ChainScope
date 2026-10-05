@@ -341,3 +341,137 @@ test("shows the signed-in user's drift email delivery history", async ({ page })
   await expect(history).toContainText("服务商已接收");
   await expect(history).toContainText("已送达");
 });
+
+test("creates, triggers, acknowledges and safely deletes an alert rule", async ({ page }) => {
+  type TestRule = {
+    id: number; coin_id: string; symbol: string; metric: string; operator: string;
+    threshold: number; enabled: boolean; is_triggered: boolean;
+    created_at: string; last_triggered_at: string | null;
+  };
+  type TestEvent = {
+    id: number; rule_id: number; coin_id: string; symbol: string; metric: string;
+    operator: string; threshold: number; observed_value: number; severity: string;
+    title: string; message: string; triggered_at: string; acknowledged_at: string | null;
+  };
+  const rules: TestRule[] = [];
+  const events: TestEvent[] = [];
+  let evaluations = 0;
+
+  await page.route("**/api/auth/me", (route) => json(route, {
+    id: 7, email: "alerts-e2e@example.com", created_at: now, email_verified: true,
+  }));
+  await page.route("**/api/alerts/**", async (route) => {
+    const { pathname } = new URL(route.request().url());
+    const method = route.request().method();
+    if (pathname === "/api/alerts/rules" && method === "GET") return json(route, rules);
+    if (pathname === "/api/alerts/events" && method === "GET") return json(route, events);
+    if (pathname === "/api/alerts/rules" && method === "POST") {
+      const input = route.request().postDataJSON();
+      const rule = {
+        ...input, id: 1, symbol: "BTC", enabled: true, is_triggered: false,
+        created_at: now, last_triggered_at: null,
+      };
+      rules.unshift(rule);
+      return json(route, rule, 201);
+    }
+    if (pathname === "/api/alerts/evaluate" && method === "POST") {
+      evaluations += 1;
+      const triggered: TestEvent[] = [];
+      if (rules[0] && !rules[0].is_triggered) {
+        rules[0].is_triggered = true;
+        rules[0].last_triggered_at = now;
+        const event = {
+          id: 1, rule_id: 1, coin_id: "bitcoin", symbol: "BTC", metric: "price_change_24h",
+          operator: "lte", threshold: -5, observed_value: -6, severity: "warning",
+          title: "BTC 24 小时涨跌幅已越过阈值", message: "当前值 -6%，已达到阈值。",
+          triggered_at: now, acknowledged_at: null,
+        };
+        events.unshift(event);
+        triggered.push(event);
+      }
+      return json(route, { evaluated_rules: rules.length, triggered_events: triggered,
+        active_events: events.filter((event) => !event.acknowledged_at) });
+    }
+    if (pathname === "/api/alerts/events/1/acknowledge" && method === "POST") {
+      events[0].acknowledged_at = now;
+      return json(route, events[0]);
+    }
+    if (pathname === "/api/alerts/rules/1" && method === "DELETE") {
+      rules.length = 0;
+      events.length = 0;
+      return route.fulfill({ status: 204, body: "" });
+    }
+    return json(route, { detail: "Unexpected alert request" }, 404);
+  });
+  await page.reload();
+
+  const alerts = page.locator("#alerts");
+  await expect(alerts.locator(".alert-journey")).toContainText("设置规则");
+  await alerts.getByLabel("指标").selectOption("price_change_24h");
+  await alerts.getByRole("button", { name: "保存这条提醒" }).click();
+  await expect(alerts.getByRole("status").filter({ hasText: "规则已保存，并产生了新预警" })).toBeVisible();
+  await expect(alerts.getByRole("heading", { name: "BTC 24 小时涨跌幅已越过阈值" })).toBeVisible();
+
+  await alerts.getByRole("button", { name: "立即检查" }).click();
+  await expect(alerts.getByText("检查完成，本次没有新增预警", { exact: false })).toBeVisible();
+  expect(evaluations).toBe(2);
+  await expect(alerts.locator(".event-item")).toHaveCount(1);
+
+  await alerts.getByRole("button", { name: "我知道了" }).click();
+  await expect(alerts.locator(".event-item")).toContainText("已确认");
+  await expect(alerts.getByText("0 条待确认")).toBeVisible();
+
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await alerts.getByRole("button", { name: "删除 BTC 预警规则" }).click();
+  await expect(alerts.locator(".rule-item")).toHaveCount(1);
+  page.once("dialog", (dialog) => dialog.accept());
+  await alerts.getByRole("button", { name: "删除 BTC 预警规则" }).click();
+  await expect(alerts.getByText("规则及关联的预警历史已删除。")).toBeVisible();
+  await expect(alerts.locator(".rule-item")).toHaveCount(0);
+  await expect(alerts.locator(".event-item")).toHaveCount(0);
+});
+
+test("keeps the alert setup readable on a narrow phone", async ({ page }) => {
+  await page.route("**/api/auth/me", (route) => json(route, {
+    id: 8, email: "phone-e2e@example.com", created_at: now, email_verified: true,
+  }));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.reload();
+  const alerts = page.locator("#alerts");
+  await alerts.scrollIntoViewIfNeeded();
+  await expect(alerts.getByRole("heading", { name: "设置监控规则" })).toBeVisible();
+  await expect(alerts.getByRole("button", { name: "保存这条提醒" })).toBeVisible();
+  await expect(alerts.getByRole("heading", { name: "预警事件" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(391);
+});
+
+test("shows alert-save failures beside the form", async ({ page }) => {
+  await page.route("**/api/auth/me", (route) => json(route, {
+    id: 9, email: "error-e2e@example.com", created_at: now, email_verified: true,
+  }));
+  await page.route("**/api/alerts/rules", (route) =>
+    route.request().method() === "POST"
+      ? json(route, { detail: "预警服务暂时不可用" }, 503)
+      : json(route, []),
+  );
+  await page.reload();
+  const alerts = page.locator("#alerts");
+  await alerts.getByRole("button", { name: "保存这条提醒" }).click();
+  await expect(alerts.getByRole("alert")).toContainText("保存失败");
+  await expect(alerts.locator(".rule-item")).toHaveCount(0);
+});
+
+test("shows a loading state instead of a login prompt while checking the session", async ({ page }) => {
+  let finishSessionCheck: () => void = () => undefined;
+  const sessionCheck = new Promise<void>((resolve) => { finishSessionCheck = resolve; });
+  await page.route("**/api/auth/me", async (route) => {
+    await sessionCheck;
+    await json(route, { id: 10, email: "loading-e2e@example.com", created_at: now, email_verified: true });
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  const alerts = page.locator("#alerts");
+  await expect(alerts.getByRole("status")).toContainText("正在读取账号和预警记录");
+  await expect(alerts.getByText("登录后启用个人风险预警")).toHaveCount(0);
+  finishSessionCheck();
+  await expect(alerts.getByRole("heading", { name: "设置监控规则" })).toBeVisible();
+});

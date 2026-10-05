@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy import delete, select
 
 from app.config import Settings
-from app.database import AlertEventRow, AlertRuleRow, Database, utcnow
+from app.database import AlertEventRow, AlertRuleRow, Database, NotificationDeliveryRow, utcnow
 from app.models import AlertEvaluationResponse, AlertEvent, AlertRule, AlertRuleCreate
 from app.services.derivatives import get_derivatives_snapshot
 from app.services.market import CoinGeckoClient, SUPPORTED_COINS
@@ -70,6 +70,20 @@ class AlertRepository:
 
     def remove_rule(self, rule_id: int) -> bool:
         with self.database.session() as session:
+            event_ids = select(AlertEventRow.id).where(
+                AlertEventRow.rule_id == rule_id,
+                AlertEventRow.user_id == self.user_id,
+            )
+            # SQLite does not always enforce FK cascades in local deployments.
+            # Remove dependents explicitly so it matches PostgreSQL behavior.
+            session.execute(delete(NotificationDeliveryRow).where(
+                NotificationDeliveryRow.event_id.in_(event_ids),
+                NotificationDeliveryRow.user_id == self.user_id,
+            ))
+            session.execute(delete(AlertEventRow).where(
+                AlertEventRow.rule_id == rule_id,
+                AlertEventRow.user_id == self.user_id,
+            ))
             result = session.execute(delete(AlertRuleRow).where(
                 AlertRuleRow.id == rule_id, AlertRuleRow.user_id == self.user_id,
             ))

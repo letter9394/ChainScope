@@ -31,9 +31,11 @@ function timeLabel(value: string) {
 
 interface AlertCenterProps {
   authenticated: boolean;
+  loading: boolean;
   rules: AlertRule[];
   events: AlertEvent[];
   busy: boolean;
+  feedback: { tone: "success" | "warning" | "error"; message: string } | null;
   onCreate: (input: AlertRuleInput) => Promise<void>;
   onDelete: (ruleId: number) => Promise<void>;
   onAcknowledge: (eventId: number) => Promise<void>;
@@ -42,9 +44,11 @@ interface AlertCenterProps {
 
 export function AlertCenter({
   authenticated,
+  loading,
   rules,
   events,
   busy,
+  feedback,
   onCreate,
   onDelete,
   onAcknowledge,
@@ -82,20 +86,36 @@ export function AlertCenter({
         <div>
           <p className="kicker">THRESHOLD MONITORING</p>
           <h2>风险预警中心</h2>
-          <p>登录后由服务器每 60 秒用最新行情检查一次。只有从安全状态首次越线时才产生新事件，避免重复轰炸。</p>
+          <p>登录后，服务在线期间每 60 秒用最新行情检查一次。只有从安全状态首次越线时才产生新事件，避免重复轰炸。</p>
         </div>
-        <button className="secondary-button" type="button" onClick={() => void onEvaluate()} disabled={busy || !authenticated}>
+        <button className="secondary-button" type="button" onClick={() => void onEvaluate()} disabled={busy || loading || !authenticated}>
           {busy ? "检查中…" : "立即检查"}
         </button>
       </div>
 
-      {!authenticated ? (
+      {loading ? (
+        <div className="panel alert-loading" role="status" aria-live="polite">
+          <span className="alert-loading-indicator" aria-hidden="true" />
+          正在读取账号和预警记录…
+        </div>
+      ) : !authenticated ? (
         <div className="auth-gate panel">
           <strong>登录后启用个人风险预警</strong>
           <p>你的规则、触发状态和历史事件会独立保存。请先在页面上方登录或注册。</p>
           <a href="#account">前往登录</a>
         </div>
-      ) : <div className="alerts-grid">
+      ) : <>
+        <div className="alert-journey" aria-label="预警使用步骤">
+          <span><b>01</b> 设置规则</span>
+          <span><b>02</b> 检查是否越线</span>
+          <span><b>03</b> 查看并确认事件</span>
+        </div>
+        {feedback && (
+          <p className={`alert-feedback ${feedback.tone}`} role={feedback.tone === "error" ? "alert" : "status"}>
+            {feedback.message}
+          </p>
+        )}
+        <div className="alerts-grid" aria-busy={busy}>
         <div className="panel alert-rule-panel">
           <div className="section-title-row">
             <div><span>01</span><h3>设置监控规则</h3></div>
@@ -139,7 +159,16 @@ export function AlertCenter({
             {rules.length === 0 ? <p className="empty-state">还没有规则。可以先创建“BTC 风险分 ≥ 65”。</p> : rules.map((rule) => (
               <article className={`rule-item ${rule.is_triggered ? "triggered" : ""}`} key={rule.id}>
                 <div><strong>{ruleSummary(rule)}</strong><span>{rule.is_triggered ? "已越线" : "监控中"}</span></div>
-                <button type="button" onClick={() => void onDelete(rule.id)} disabled={busy} aria-label={`删除 ${rule.symbol} 预警规则`}>删除</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm("删除这条规则？相关的预警历史也会一并删除，此操作无法撤销。")) {
+                      void onDelete(rule.id);
+                    }
+                  }}
+                  disabled={busy}
+                  aria-label={`删除 ${rule.symbol} 预警规则`}
+                >删除</button>
               </article>
             ))}
           </div>
@@ -161,7 +190,8 @@ export function AlertCenter({
             ))}
           </div>
         </div>
-      </div>}
+        </div>
+      </>}
     </section>
   );
 }
