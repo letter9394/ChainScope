@@ -14,6 +14,10 @@ from app.services.risk import assess_risk
 METRIC_LABELS = {"risk_score": "综合风险分", "price_change_24h": "24 小时涨跌幅"}
 
 
+class DuplicateAlertRuleError(Exception):
+    """The user already has a rule with the same monitoring condition."""
+
+
 class AlertRepository:
     """User-scoped alert rules, transition state, and events."""
 
@@ -58,11 +62,20 @@ class AlertRepository:
     def add_rule(self, rule: AlertRuleCreate) -> AlertRule:
         if rule.coin_id not in SUPPORTED_COINS:
             raise ValueError(f"Unsupported coin: {rule.coin_id}")
-        row = AlertRuleRow(
-            user_id=self.user_id, coin_id=rule.coin_id, symbol=SUPPORTED_COINS[rule.coin_id],
-            metric=rule.metric, operator=rule.operator, threshold=rule.threshold,
-        )
         with self.database.session() as session:
+            existing = session.scalar(select(AlertRuleRow.id).where(
+                AlertRuleRow.user_id == self.user_id,
+                AlertRuleRow.coin_id == rule.coin_id,
+                AlertRuleRow.metric == rule.metric,
+                AlertRuleRow.operator == rule.operator,
+                AlertRuleRow.threshold == rule.threshold,
+            ).limit(1))
+            if existing is not None:
+                raise DuplicateAlertRuleError("相同的预警规则已存在，请在下方查看已有规则。")
+            row = AlertRuleRow(
+                user_id=self.user_id, coin_id=rule.coin_id, symbol=SUPPORTED_COINS[rule.coin_id],
+                metric=rule.metric, operator=rule.operator, threshold=rule.threshold,
+            )
             session.add(row)
             session.commit()
             session.refresh(row)

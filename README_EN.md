@@ -31,6 +31,7 @@ On October 5, 2026, a temporary BTC risk-score threshold of `≥ 0` produced an 
 - Signed, expiring double-submit CSRF tokens on every unsafe API request, reinforced with `Origin`, `Referer`, and `Sec-Fetch-Site` validation and a single automatic client refresh on token expiry
 - Per-user watchlists, rules, events, and notification preferences backed by PostgreSQL (SQLite fallback for local development)
 - Threshold rules for risk score and 24-hour price change, checked every 60 seconds while the server is awake
+- Duplicate rule creation is rejected for the same user and identical asset, metric, operator, and threshold; pre-existing duplicates are left intact
 - Transition-based alert events with acknowledgement and history, without repeated notification spam
 - Brevo HTTPS API for free Render deployments, plus QQ Mail, NetEase Mail, and custom SMTP fallback with a self-test endpoint
 - Cache, retry, timeout, validation, tests, Docker, and CI configuration

@@ -461,6 +461,31 @@ test("shows alert-save failures beside the form", async ({ page }) => {
   await expect(alerts.locator(".rule-item")).toHaveCount(0);
 });
 
+test("warns about an identical alert rule without sending another create request", async ({ page }) => {
+  let createRequests = 0;
+  await page.route("**/api/auth/me", (route) => json(route, {
+    id: 11, email: "duplicate-e2e@example.com", created_at: now, email_verified: true,
+  }));
+  await page.route("**/api/alerts/rules", (route) => {
+    if (route.request().method() === "POST") {
+      createRequests += 1;
+      return json(route, { detail: "相同的预警规则已存在，请在下方查看已有规则。" }, 409);
+    }
+    return json(route, [{
+      id: 12, coin_id: "bitcoin", symbol: "BTC", metric: "risk_score", operator: "gte",
+      threshold: 65, enabled: true, is_triggered: false, created_at: now, last_triggered_at: null,
+    }]);
+  });
+  await page.reload();
+
+  const alerts = page.locator("#alerts");
+  await expect(alerts.locator(".rule-item")).toHaveCount(1);
+  await alerts.getByRole("button", { name: "保存这条提醒" }).click();
+  await expect(alerts.getByRole("status").filter({ hasText: "相同的预警规则已存在" })).toBeVisible();
+  await expect(alerts.locator(".rule-item")).toHaveCount(1);
+  expect(createRequests).toBe(0);
+});
+
 test("shows a loading state instead of a login prompt while checking the session", async ({ page }) => {
   let finishSessionCheck: () => void = () => undefined;
   const sessionCheck = new Promise<void>((resolve) => { finishSessionCheck = resolve; });

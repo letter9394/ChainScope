@@ -36,7 +36,7 @@ from app.observability import (
     PROCESS_STARTED_MONOTONIC, configure_logging, risk_drift_runtime,
     scheduler_runtime, utc_iso,
 )
-from app.services.alerts import AlertRepository, evaluate_alert_rules
+from app.services.alerts import AlertRepository, DuplicateAlertRuleError, evaluate_alert_rules
 from app.services.auth import (
     UserRepository, create_email_verification_token, create_password_reset_token,
     create_session_token, decode_email_verification_token, decode_password_reset_token,
@@ -1162,6 +1162,8 @@ async def create_alert_rule(
 ) -> AlertRule:
     try:
         return repository.add_rule(payload)
+    except DuplicateAlertRuleError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

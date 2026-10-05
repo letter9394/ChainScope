@@ -403,6 +403,14 @@ export default function Home() {
   };
 
   const createRule = async (input: AlertRuleInput) => {
+    if (alertRules.some((rule) => rule.coin_id === input.coin_id
+      && rule.metric === input.metric
+      && rule.operator === input.operator
+      && rule.threshold === input.threshold)) {
+      setAlertFeedback({ tone: "warning", message: "相同的预警规则已存在，请在下方查看已有规则。" });
+      setError(null);
+      return;
+    }
     setAlertsBusy(true);
     setAlertFeedback(null);
     try {

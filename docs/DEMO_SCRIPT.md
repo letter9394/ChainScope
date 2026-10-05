@@ -52,7 +52,7 @@
 
 建议讲法：
 
-> 用户密码使用 scrypt 加盐哈希，会话存放在 HttpOnly Cookie。新账号需要邮箱验证；认证端点有 IP 与账号双维度限流，所有写请求还有签名 CSRF Token。后端有 112 项自动化测试，前端有 10 个 Playwright 端到端流程。
+> 用户密码使用 scrypt 加盐哈希，会话存放在 HttpOnly Cookie。新账号需要邮箱验证；认证端点有 IP 与账号双维度限流，所有写请求还有签名 CSRF Token。后端有 113 项自动化测试，前端有 11 个 Playwright 端到端流程。
 
 展示：GitHub Actions 或 README 测试命令，不展示任何密钥页面。
 

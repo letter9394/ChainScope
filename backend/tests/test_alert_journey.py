@@ -97,3 +97,30 @@ def test_rule_triggers_once_can_be_acknowledged_and_retriggers_after_reset(alert
     assert client.delete(f"/api/alerts/rules/{rule_id}").status_code == 204
     assert client.get("/api/alerts/rules").json() == []
     assert client.get("/api/alerts/events").json() == []
+
+
+def test_identical_rule_is_rejected_without_affecting_other_rules_or_users(alert_client) -> None:
+    client, _ = alert_client
+    assert client.post(
+        "/api/auth/register",
+        json={"email": "first-alert-user@example.com", "password": "safe-password-1"},
+    ).status_code == 201
+    rule = {"coin_id": "bitcoin", "metric": "risk_score", "operator": "gte", "threshold": 0}
+
+    first = client.post("/api/alerts/rules", json=rule)
+    duplicate = client.post("/api/alerts/rules", json=rule)
+
+    assert first.status_code == 201
+    assert duplicate.status_code == 409
+    assert duplicate.json()["detail"] == "相同的预警规则已存在，请在下方查看已有规则。"
+    assert [item["id"] for item in client.get("/api/alerts/rules").json()] == [first.json()["id"]]
+
+    # A different threshold remains a distinct rule, and rules are scoped to each user.
+    assert client.post("/api/alerts/rules", json={**rule, "threshold": 65}).status_code == 201
+    assert client.post("/api/auth/logout").status_code == 204
+    assert client.post(
+        "/api/auth/register",
+        json={"email": "second-alert-user@example.com", "password": "safe-password-1"},
+    ).status_code == 201
+    assert client.post("/api/alerts/rules", json=rule).status_code == 201
+    assert len(client.get("/api/alerts/rules").json()) == 1
