@@ -37,6 +37,7 @@ from app.observability import (
     scheduler_runtime, utc_iso,
 )
 from app.services.alerts import AlertRepository, DuplicateAlertRuleError, evaluate_alert_rules
+from app.services.account_export import export_account_data
 from app.services.auth import (
     UserRepository, create_email_verification_token, create_password_reset_token,
     create_session_token, decode_email_verification_token, decode_password_reset_token,
@@ -680,6 +681,22 @@ async def current_user(
 ) -> AuthUser:
     repository = UserRepository(database)
     return user_model(user, email_verified=repository.is_email_verified(user.id))
+
+
+@app.get("/api/account/export", tags=["account"])
+async def download_account_data(
+    user: UserRow = Depends(get_current_user),
+    database: Database = Depends(get_database),
+) -> JSONResponse:
+    payload = export_account_data(database, user)
+    return JSONResponse(
+        content=payload,
+        headers={
+            "Cache-Control": "private, no-store",
+            "Content-Disposition": 'attachment; filename="chainscope-account-data.json"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @app.get("/api/markets", response_model=list[MarketCoin], tags=["market"])

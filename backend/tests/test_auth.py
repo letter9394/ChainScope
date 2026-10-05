@@ -5,7 +5,10 @@ from urllib.parse import unquote
 import pytest
 
 from app.config import Settings, get_settings
-from app.database import Database, UserRow
+from app.database import (
+    AlertEventRow, Database, NotificationDeliveryRow, NotificationPreferenceRow,
+    RiskDriftDeliveryRow, RiskDriftEventRow, UserRow, utcnow,
+)
 from app.main import _auth_rate_limiter, app, get_database
 from app.services.auth import UserRepository
 from app.services.notifications import NotificationService
@@ -60,6 +63,74 @@ def test_register_login_and_user_data_are_isolated(clients) -> None:
         json={"email": "first@example.com", "password": "safe-password-1"},
     ).status_code == 200
     assert first.get("/api/auth/me").json()["email"] == "first@example.com"
+
+
+def test_account_export_is_complete_private_and_contains_no_secrets(clients) -> None:
+    first, second = clients
+    assert first.get("/api/account/export").status_code == 401
+    first.post("/api/auth/register", json={"email": "first@example.com", "password": "safe-password-1"})
+    second.post("/api/auth/register", json={"email": "second@example.com", "password": "safe-password-2"})
+    assert first.post("/api/watchlist/bitcoin").status_code == 200
+    first_rule = first.post("/api/alerts/rules", json={
+        "coin_id": "bitcoin", "metric": "risk_score", "operator": "gte", "threshold": 65,
+    }).json()
+    second_rule = second.post("/api/alerts/rules", json={
+        "coin_id": "ethereum", "metric": "risk_score", "operator": "gte", "threshold": 70,
+    }).json()
+
+    database = app.dependency_overrides[get_database]()
+    now = utcnow()
+    with database.session() as session:
+        session.add(NotificationPreferenceRow(user_id=1, email_enabled=True, drift_email_enabled=True))
+        for index in range(105):
+            session.add(AlertEventRow(
+                user_id=1, rule_id=first_rule["id"], coin_id="bitcoin", symbol="BTC",
+                metric="risk_score", operator="gte", threshold=65,
+                observed_value=65 + index, severity="warning", title=f"alert-{index}",
+                message="user-one-event", triggered_at=now,
+            ))
+        session.add(AlertEventRow(
+            user_id=2, rule_id=second_rule["id"], coin_id="ethereum", symbol="ETH",
+            metric="risk_score", operator="gte", threshold=70,
+            observed_value=80, severity="warning", title="other-user-secret",
+            message="other-user-event", triggered_at=now,
+        ))
+        drift_event = RiskDriftEventRow(
+            coin_id="bitcoin", symbol="BTC", previous_status="healthy",
+            current_status="degraded", transition_date="2026-10-05", severity="warning",
+            title="drift-title", message="drift-message", created_at=now,
+        )
+        session.add(drift_event)
+        session.flush()
+        session.add(RiskDriftDeliveryRow(
+            event_id=drift_event.id, user_id=1, channel="email", status="delivered",
+            attempted_at=now, provider_message_id="secret-provider-id",
+        ))
+        session.flush()
+        first_event_id = session.query(AlertEventRow.id).filter_by(user_id=1).first()[0]
+        session.add(NotificationDeliveryRow(
+            event_id=first_event_id, user_id=1, channel="email", status="sent", attempted_at=now,
+            error_message="private-provider-error",
+        ))
+        session.commit()
+
+    response = first.get("/api/account/export")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "private, no-store"
+    assert "attachment" in response.headers["content-disposition"]
+    payload = response.json()
+    assert payload["schema_version"] == 1
+    assert payload["account"]["email"] == "first@example.com"
+    assert payload["watchlist"][0]["coin_id"] == "bitcoin"
+    assert payload["alert_rules"][0]["id"] == first_rule["id"]
+    assert len(payload["alert_events"]) == 105
+    assert payload["notification_preferences"]["drift_email_enabled"] is True
+    assert payload["notification_deliveries"][0]["status"] == "sent"
+    assert payload["risk_drift_deliveries"][0]["status"] == "delivered"
+    for secret in ("safe-password-1", "password_hash", "other-user-secret", "secret-provider-id", "private-provider-error"):
+        assert secret not in response.text
+    assert second.get("/api/account/export").json()["account"]["email"] == "second@example.com"
+    assert len(second.get("/api/account/export").json()["alert_events"]) == 1
 
 
 def test_notification_settings_are_user_scoped(clients) -> None:

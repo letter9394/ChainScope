@@ -255,6 +255,19 @@ export const evaluateAlerts = () =>
 export const getCurrentUser = (signal?: AbortSignal) =>
   apiRequest<AuthUser>("/api/auth/me", signal);
 
+export async function downloadAccountData(): Promise<void> {
+  const data = await apiRequest<unknown>("/api/account/export");
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `chainscope-account-data-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 export const registerUser = (email: string, password: string) =>
   apiRequest<AuthUser>("/api/auth/register", undefined, {
     method: "POST",

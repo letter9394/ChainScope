@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
+import { readFile } from "node:fs/promises";
 
 const now = "2026-09-26T05:00:00Z";
 const markets = [
@@ -340,6 +341,26 @@ test("shows the signed-in user's drift email delivery history", async ({ page })
   await expect(history).toContainText("BTC 模型检测到性能衰减");
   await expect(history).toContainText("服务商已接收");
   await expect(history).toContainText("已送达");
+});
+
+test("downloads signed-in account data as a JSON file", async ({ page }) => {
+  await page.route("**/api/auth/me", (route) => json(route, {
+    id: 7, email: "export@example.com", created_at: now, email_verified: true,
+  }));
+  await page.route("**/api/account/export", (route) => json(route, {
+    format: "chainscope-account-export", schema_version: 1,
+    account: { email: "export@example.com" }, watchlist: [], alert_rules: [], alert_events: [],
+  }));
+  await page.reload();
+
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("button", { name: "下载我的数据" }).click(),
+  ]);
+  expect(download.suggestedFilename()).toMatch(/^chainscope-account-data-\d{4}-\d{2}-\d{2}\.json$/);
+  const payload = JSON.parse(await readFile(await download.path(), "utf8"));
+  expect(payload.account.email).toBe("export@example.com");
+  await expect(page.getByRole("status").filter({ hasText: "个人数据文件已开始下载" })).toBeVisible();
 });
 
 test("creates, triggers, acknowledges and safely deletes an alert rule", async ({ page }) => {

@@ -36,6 +36,7 @@ ChainScope 是一个面向学习与作品集展示的 Web3 智能市场分析与
 - 登录、注册、找回密码和验证邮件重发均有 IP＋账号双维度滑动窗口限流，并返回标准 `429` / `Retry-After`
 - 所有写请求使用带时效签名的双提交 CSRF Token，并同时校验 `Origin` / `Referer` / `Sec-Fetch-Site`；令牌失效时前端仅自动刷新重试一次
 - PostgreSQL 按用户隔离自选、预警规则、事件与通知设置；本地开发可退回 SQLite
+- 登录后可从账户页下载完整个人数据 JSON（自选、规则、事件、通知设置和投递记录）；不会导出密码哈希、会话或服务商密钥
 - 自定义“风险分”或“24 小时涨跌幅”阈值，服务器在线时每 60 秒后台检查
 - 保存时拦截同一用户完全相同的资产、指标、条件和阈值组合，避免误建重复规则；已有重复记录不会被自动删除
 - 仅在安全状态首次越线时生成事件，避免重复通知；支持确认和历史追溯
@@ -155,6 +156,8 @@ Blueprint 会同时创建 Web Service 和 PostgreSQL，并自动注入 `DATABASE
 
 Render 免费 Web Service 闲置后会休眠，所以休眠期间后台检查暂停，首次唤醒也可能较慢。免费 PostgreSQL 目前会在创建 30 天后到期，适合作品集演示而非正式生产；长期运行应升级数据库。若需要严格全天候分钟级任务，可升级实例或改用付费 Render Cron Job/独立 Worker。
 
+账户页的“下载我的数据”是当前账号的可读 JSON 副本，下载后应保存在安全位置。它不包含其他用户或全库系统数据，也没有自动恢复功能，**不能代替 PostgreSQL 数据库备份**。迁移或续期数据库前，仍需由有数据库权限的管理员执行并验证完整数据库备份。
+
 ## 可选环境变量
 
 后端默认不需要 API Key 即可运行。复制 `backend/.env.example` 为 `backend/.env` 可修改配置：
@@ -235,6 +238,7 @@ pnpm test:e2e
 | POST | `/api/auth/email-verification/confirm`、`/api/auth/email-verification/resend` | 确认或重发邮箱验证 |
 | POST | `/api/auth/password-reset/request`、`/api/auth/password-reset/confirm` | 申请并完成一次性密码重置 |
 | GET | `/api/auth/me` | 获取当前登录账号 |
+| GET | `/api/account/export` | 下载当前登录用户的完整个人数据 JSON（不含密码和密钥） |
 | GET / POST / DELETE | `/api/watchlist` | 查询、添加和删除自选资产 |
 | GET / POST / DELETE | `/api/alerts/rules` | 查询、创建和删除阈值规则 |
 | POST | `/api/alerts/evaluate` | 用最新数据检查全部规则 |

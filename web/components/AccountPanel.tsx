@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { downloadAccountData } from "@/lib/api";
 import type { AuthUser, DriftEmailDelivery, NotificationSettings } from "@/lib/types";
 
 type AccountMode = "login" | "register" | "forgot" | "reset";
@@ -51,6 +52,7 @@ export function AccountPanel({
   const [driftEmailEnabled, setDriftEmailEnabled] = useState(false);
   const [testMessage, setTestMessage] = useState<string | null>(null);
   const [accountMessage, setAccountMessage] = useState<string | null>(null);
+  const [exportBusy, setExportBusy] = useState(false);
 
   useEffect(() => {
     if (emailVerificationMessage) setAccountMessage(emailVerificationMessage);
@@ -81,6 +83,19 @@ export function AccountPanel({
       setAccountMessage(await onResendEmailVerification());
     } catch (reason) {
       setAccountMessage(reason instanceof Error ? reason.message : "验证邮件发送失败");
+    }
+  };
+
+  const exportData = async () => {
+    setAccountMessage(null);
+    setExportBusy(true);
+    try {
+      await downloadAccountData();
+      setAccountMessage("个人数据文件已开始下载，请妥善保管。");
+    } catch (reason) {
+      setAccountMessage(reason instanceof Error ? reason.message : "下载个人数据失败");
+    } finally {
+      setExportBusy(false);
     }
   };
 
@@ -182,6 +197,10 @@ export function AccountPanel({
             </button>
           </>
         ) : null}
+        <button className="secondary-button" type="button" onClick={() => void exportData()} disabled={busy || exportBusy}>
+          {exportBusy ? "正在准备下载…" : "下载我的数据"}
+        </button>
+        <p>包含自选、预警规则与历史、通知设置和投递记录；不含密码或密钥。请保存到安全位置。此文件不是数据库备份。</p>
         <button className="secondary-button" type="button" onClick={() => void onLogout()} disabled={busy}>退出登录</button>
         {accountMessage ? <p className="email-test-result" role="status">{accountMessage}</p> : null}
       </div>
