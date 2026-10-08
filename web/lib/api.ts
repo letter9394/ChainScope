@@ -235,6 +235,13 @@ export const createAlertRule = (input: AlertRuleInput) =>
     body: JSON.stringify(input),
   });
 
+export const setAlertRuleEnabled = (ruleId: number, enabled: boolean) =>
+  apiRequest<AlertRule>(`/api/alerts/rules/${ruleId}`, undefined, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+
 export async function deleteAlertRule(ruleId: number): Promise<void> {
   await apiVoidRequest(`/api/alerts/rules/${ruleId}`, { method: "DELETE" });
 }

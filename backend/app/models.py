@@ -522,6 +522,10 @@ class AlertRuleCreate(BaseModel):
     threshold: float = Field(ge=-100, le=100)
 
 
+class AlertRuleStatusUpdate(BaseModel):
+    enabled: bool
+
+
 class AlertRule(AlertRuleCreate):
     id: int
     symbol: str

@@ -20,6 +20,10 @@ function ruleSummary(rule: AlertRule) {
   return `${rule.symbol} · ${metricCopy[rule.metric].label} ${comparison} ${rule.threshold}${metricCopy[rule.metric].unit}`;
 }
 
+function isDemoRiskRule(rule: AlertRule) {
+  return rule.metric === "risk_score" && rule.operator === "gte" && rule.threshold === 0;
+}
+
 function timeLabel(value: string) {
   return new Intl.DateTimeFormat("zh-CN", {
     month: "2-digit",
@@ -37,6 +41,7 @@ interface AlertCenterProps {
   busy: boolean;
   feedback: { tone: "success" | "warning" | "error"; message: string } | null;
   onCreate: (input: AlertRuleInput) => Promise<void>;
+  onSetEnabled: (ruleId: number, enabled: boolean) => Promise<void>;
   onDelete: (ruleId: number) => Promise<void>;
   onAcknowledge: (eventId: number) => Promise<void>;
   onEvaluate: () => Promise<void>;
@@ -50,6 +55,7 @@ export function AlertCenter({
   busy,
   feedback,
   onCreate,
+  onSetEnabled,
   onDelete,
   onAcknowledge,
   onEvaluate,
@@ -61,6 +67,8 @@ export function AlertCenter({
   const selectedSymbol = coinOptions.find((coin) => coin.id === coinId)?.symbol ?? coinId;
   const comparisonCopy = operator === "gte" ? "达到或高于" : "达到或低于";
   const thresholdCopy = threshold.trim() || "—";
+  const demoRiskRuleCount = rules.filter((rule) => rule.enabled && isDemoRiskRule(rule)).length;
+  const isDemoRiskDraft = metric === "risk_score" && operator === "gte" && threshold.trim() !== "" && Number(threshold) === 0;
 
   const changeMetric = (nextMetric: AlertMetric) => {
     setMetric(nextMetric);
@@ -119,13 +127,19 @@ export function AlertCenter({
         <div className="panel alert-rule-panel">
           <div className="section-title-row">
             <div><span>01</span><h3>设置监控规则</h3></div>
-            <strong>{rules.length} 条启用</strong>
+            <strong>{rules.filter((rule) => rule.enabled).length} 条启用</strong>
           </div>
           <div className="alert-explainer">
             <strong>阈值 = 你设置的报警线</strong>
             <p>例如风险分报警线设为 65：当风险分从 65 以下升到 65 或更高时，系统记录一次预警。</p>
             <div><span>0–29 低风险</span><span>30–59 中风险</span><span>60–100 高风险</span></div>
           </div>
+          {demoRiskRuleCount > 0 && (
+            <div className="alert-demo-warning" role="note">
+              <strong>检测到 {demoRiskRuleCount} 条已启用的 0 分验收规则</strong>
+              <p>风险分 ≥ 0 只适合验证预警流程，不适合作为日常报警线。保留验收证据后请复核这些规则；删除规则会同时删除关联的预警历史。</p>
+            </div>
+          )}
           <form className="alert-form" onSubmit={submit}>
             <label>资产
               <select value={coinId} onChange={(event) => setCoinId(event.target.value)}>
@@ -151,24 +165,33 @@ export function AlertCenter({
               <strong>当前规则</strong>
               <span>当 {selectedSymbol} 的{metricCopy[metric].label}{comparisonCopy} {thresholdCopy}{metricCopy[metric].unit}时提醒我。</span>
               <small>{metric === "risk_score" ? "风险分范围为 0–100，分数越高代表市场风险越大。" : "例如设为 -5%，表示 24 小时跌幅达到 5% 或更多时提醒。"}</small>
+              {isDemoRiskDraft && <small className="demo-threshold-hint">0 分仅用于验收测试，不建议长期启用。</small>}
             </div>
             <button className="primary-button" type="submit" disabled={busy}>保存这条提醒</button>
           </form>
 
           <div className="rule-list">
             {rules.length === 0 ? <p className="empty-state">还没有规则。可以先创建“BTC 风险分 ≥ 65”。</p> : rules.map((rule) => (
-              <article className={`rule-item ${rule.is_triggered ? "triggered" : ""}`} key={rule.id}>
-                <div><strong>{ruleSummary(rule)}</strong><span>{rule.is_triggered ? "已越线" : "监控中"}</span></div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (window.confirm("删除这条规则？相关的预警历史也会一并删除，此操作无法撤销。")) {
-                      void onDelete(rule.id);
-                    }
-                  }}
-                  disabled={busy}
-                  aria-label={`删除 ${rule.symbol} 预警规则`}
-                >删除</button>
+              <article className={`rule-item ${rule.is_triggered && rule.enabled ? "triggered" : ""}`} key={rule.id}>
+                <div className="rule-item-copy"><strong>{ruleSummary(rule)}</strong><span>{rule.enabled ? (rule.is_triggered ? "已越线" : "监控中") : "已停用"}{isDemoRiskRule(rule) ? " · 演示阈值" : ""}</span></div>
+                <div className="rule-item-actions">
+                  <button
+                    type="button"
+                    onClick={() => void onSetEnabled(rule.id, !rule.enabled)}
+                    disabled={busy}
+                    aria-label={`${rule.enabled ? "停用" : "启用"} ${ruleSummary(rule)}`}
+                  >{rule.enabled ? "停用" : "启用"}</button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (window.confirm("删除这条规则？相关的预警历史也会一并删除，此操作无法撤销。")) {
+                        void onDelete(rule.id);
+                      }
+                    }}
+                    disabled={busy}
+                    aria-label={`删除 ${rule.symbol} 预警规则`}
+                  >删除</button>
+                </div>
               </article>
             ))}
           </div>

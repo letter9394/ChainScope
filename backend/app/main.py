@@ -23,7 +23,7 @@ from app.config import Settings, get_settings
 from app.database import Database, UserRow
 from app.migrations import upgrade_database
 from app.models import (
-    AlertEvaluationResponse, AlertEvent, AlertRule, AlertRuleCreate, AuthCredentials,
+    AlertEvaluationResponse, AlertEvent, AlertRule, AlertRuleCreate, AlertRuleStatusUpdate, AuthCredentials,
     AuthMessageResponse, AuthUser, CandleSeries, CsrfTokenResponse, DerivativesSnapshot,
     DriftEmailDelivery, EmailVerificationConfirm, HealthCheck, HealthResponse, HistoryPoint, MarketCoin,
     NewsResponse, NewsTranslationRequest, NewsTranslationResponse,
@@ -1183,6 +1183,17 @@ async def create_alert_rule(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.patch("/api/alerts/rules/{rule_id}", response_model=AlertRule, tags=["alerts"])
+async def update_alert_rule_status(
+    rule_id: int, payload: AlertRuleStatusUpdate,
+    repository: AlertRepository = Depends(get_alert_repository),
+) -> AlertRule:
+    rule = repository.set_rule_enabled(rule_id, payload.enabled)
+    if rule is None:
+        raise HTTPException(status_code=404, detail="Alert rule not found")
+    return rule
 
 
 @app.delete("/api/alerts/rules/{rule_id}", status_code=204, tags=["alerts"])

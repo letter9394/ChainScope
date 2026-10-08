@@ -48,6 +48,37 @@ def test_alert_only_fires_on_safe_to_triggered_transition(repository: AlertRepos
     assert len(repository.list_events()) == 2
 
 
+def test_rule_can_be_paused_without_losing_history(repository: AlertRepository) -> None:
+    rule = repository.add_rule(AlertRuleCreate(
+        coin_id="bitcoin", metric="risk_score", operator="gte", threshold=65,
+    ))
+    assert len(repository.evaluate({("bitcoin", "risk_score"): 72})) == 1
+    paused = repository.set_rule_enabled(rule.id, False)
+
+    assert paused is not None and paused.enabled is False
+    assert paused.is_triggered is True
+    assert repository.list_events()[0].rule_id == rule.id
+    assert repository.list_rules(enabled_only=True) == []
+    assert repository.evaluate({("bitcoin", "risk_score"): 50}) == []
+    assert len(repository.list_events()) == 1
+
+    resumed = repository.set_rule_enabled(rule.id, True)
+    assert resumed is not None and resumed.enabled is True
+    assert repository.evaluate({("bitcoin", "risk_score"): 80}) == []
+    repository.evaluate({("bitcoin", "risk_score"): 50})
+    assert len(repository.evaluate({("bitcoin", "risk_score"): 70})) == 1
+    assert len(repository.list_events()) == 2
+
+
+def test_rule_status_update_is_user_scoped(repository: AlertRepository) -> None:
+    rule = repository.add_rule(AlertRuleCreate(
+        coin_id="bitcoin", metric="risk_score", operator="gte", threshold=65,
+    ))
+    other_user = AlertRepository(repository.database, user_id=2)
+    assert other_user.set_rule_enabled(rule.id, False) is None
+    assert repository.list_rules()[0].enabled is True
+
+
 def test_event_can_be_acknowledged(repository: AlertRepository) -> None:
     repository.add_rule(
         AlertRuleCreate(

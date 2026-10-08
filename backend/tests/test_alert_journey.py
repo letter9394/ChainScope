@@ -124,3 +124,30 @@ def test_identical_rule_is_rejected_without_affecting_other_rules_or_users(alert
     ).status_code == 201
     assert client.post("/api/alerts/rules", json=rule).status_code == 201
     assert len(client.get("/api/alerts/rules").json()) == 1
+
+
+def test_rule_can_be_paused_and_resumed_without_deleting_events(alert_client) -> None:
+    client, market = alert_client
+    assert client.post(
+        "/api/auth/register",
+        json={"email": "pause-alert@example.com", "password": "safe-password-1"},
+    ).status_code == 201
+    created = client.post("/api/alerts/rules", json={
+        "coin_id": "bitcoin", "metric": "price_change_24h", "operator": "lte", "threshold": -5,
+    })
+    rule_id = created.json()["id"]
+    market.change_24h = -6
+    assert len(client.post("/api/alerts/evaluate").json()["triggered_events"]) == 1
+
+    paused = client.patch(f"/api/alerts/rules/{rule_id}", json={"enabled": False})
+    assert paused.status_code == 200
+    assert paused.json()["enabled"] is False
+    assert len(client.get("/api/alerts/events").json()) == 1
+    assert client.post("/api/alerts/evaluate").json()["evaluated_rules"] == 0
+
+    resumed = client.patch(f"/api/alerts/rules/{rule_id}", json={"enabled": True})
+    assert resumed.status_code == 200
+    assert resumed.json()["enabled"] is True
+    assert client.post("/api/alerts/evaluate").json()["triggered_events"] == []
+    assert len(client.get("/api/alerts/events").json()) == 1
+    assert client.patch("/api/alerts/rules/999999", json={"enabled": False}).status_code == 404

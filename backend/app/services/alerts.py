@@ -81,6 +81,19 @@ class AlertRepository:
             session.refresh(row)
             return self._rule_model(row)
 
+    def set_rule_enabled(self, rule_id: int, enabled: bool) -> AlertRule | None:
+        with self.database.session() as session:
+            row = session.scalar(select(AlertRuleRow).where(
+                AlertRuleRow.id == rule_id, AlertRuleRow.user_id == self.user_id,
+            ))
+            if row is None:
+                return None
+            # Preserve the transition state and event history while monitoring is paused.
+            row.enabled = enabled
+            session.commit()
+            session.refresh(row)
+            return self._rule_model(row)
+
     def remove_rule(self, rule_id: int) -> bool:
         with self.database.session() as session:
             event_ids = select(AlertEventRow.id).where(

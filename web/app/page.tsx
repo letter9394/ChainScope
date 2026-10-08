@@ -41,6 +41,7 @@ import {
   requestPasswordReset,
   removeFromWatchlist,
   sendTestEmail,
+  setAlertRuleEnabled,
   updateNotificationSettings,
 } from "@/lib/api";
 import type {
@@ -459,6 +460,28 @@ export default function Home() {
     }
   };
 
+  const toggleRule = async (ruleId: number, enabled: boolean) => {
+    setAlertsBusy(true);
+    setAlertFeedback(null);
+    try {
+      const updated = await setAlertRuleEnabled(ruleId, enabled);
+      setAlertRules((rules) => rules.map((rule) => rule.id === ruleId ? updated : rule));
+      setAlertFeedback({
+        tone: "success",
+        message: enabled
+          ? "规则已启用，后台会继续检查；已有预警历史保持不变。"
+          : "规则已停用，不再检查；规则和预警历史均已保留。",
+      });
+      setError(null);
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : "预警规则状态更新失败";
+      setAlertFeedback({ tone: "error", message: `状态更新失败：${message}` });
+      setError(message);
+    } finally {
+      setAlertsBusy(false);
+    }
+  };
+
   const acknowledgeEvent = async (eventId: number) => {
     setAlertsBusy(true);
     setAlertFeedback(null);
@@ -740,6 +763,7 @@ export default function Home() {
         busy={alertsBusy}
         feedback={alertFeedback}
         onCreate={createRule}
+        onSetEnabled={toggleRule}
         onDelete={deleteRule}
         onAcknowledge={acknowledgeEvent}
         onEvaluate={checkAlerts}

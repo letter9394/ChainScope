@@ -452,6 +452,57 @@ test("creates, triggers, acknowledges and safely deletes an alert rule", async (
   await expect(alerts.locator(".event-item")).toHaveCount(0);
 });
 
+test("marks active zero-point risk rules as demo thresholds without changing them", async ({ page }) => {
+  await page.route("**/api/auth/me", (route) => json(route, {
+    id: 9, email: "demo-rule-e2e@example.com", created_at: now, email_verified: true,
+  }));
+  await page.route("**/api/alerts/rules", (route) => json(route, [1, 2].map((id) => ({
+    id, coin_id: "bitcoin", symbol: "BTC", metric: "risk_score", operator: "gte",
+    threshold: 0, enabled: true, is_triggered: true, created_at: now, last_triggered_at: now,
+  }))));
+  await page.reload();
+
+  const alerts = page.locator("#alerts");
+  await expect(alerts.locator(".alert-demo-warning")).toContainText("2 条已启用的 0 分验收规则");
+  await expect(alerts.locator(".rule-item")).toHaveCount(2);
+  await expect(alerts.locator(".rule-item").first()).toContainText("演示阈值");
+  await alerts.locator(".threshold-input input").fill("0");
+  await expect(alerts.locator(".demo-threshold-hint")).toBeVisible();
+});
+
+test("pauses and resumes a rule while keeping its event visible", async ({ page }) => {
+  const rule = {
+    id: 11, coin_id: "bitcoin", symbol: "BTC", metric: "risk_score", operator: "gte",
+    threshold: 0, enabled: true, is_triggered: true, created_at: now, last_triggered_at: now,
+  };
+  const event = {
+    id: 12, rule_id: 11, coin_id: "bitcoin", symbol: "BTC", metric: "risk_score",
+    operator: "gte", threshold: 0, observed_value: 12, severity: "warning",
+    title: "BTC 综合风险分已越过阈值", message: "测试事件", triggered_at: now, acknowledged_at: null,
+  };
+  await page.route("**/api/auth/me", (route) => json(route, {
+    id: 9, email: "pause-rule-e2e@example.com", created_at: now, email_verified: true,
+  }));
+  await page.route("**/api/alerts/rules", (route) => json(route, [rule]));
+  await page.route("**/api/alerts/events?*", (route) => json(route, [event]));
+  await page.route("**/api/alerts/rules/11", (route) => {
+    expect(route.request().method()).toBe("PATCH");
+    rule.enabled = route.request().postDataJSON().enabled;
+    return json(route, rule);
+  });
+  await page.reload();
+
+  const alerts = page.locator("#alerts");
+  await expect(alerts.locator(".event-item")).toHaveCount(1);
+  await alerts.getByRole("button", { name: "停用 BTC · 综合风险分 ≥ 0分" }).click();
+  await expect(alerts.locator(".rule-item")).toContainText("已停用 · 演示阈值");
+  await expect(alerts.locator(".event-item")).toHaveCount(1);
+  await expect(alerts.locator(".alert-demo-warning")).toHaveCount(0);
+  await alerts.getByRole("button", { name: "启用 BTC · 综合风险分 ≥ 0分" }).click();
+  await expect(alerts.locator(".alert-demo-warning")).toBeVisible();
+  await expect(alerts.locator(".event-item")).toHaveCount(1);
+});
+
 test("keeps the alert setup readable on a narrow phone", async ({ page }) => {
   await page.route("**/api/auth/me", (route) => json(route, {
     id: 8, email: "phone-e2e@example.com", created_at: now, email_verified: true,
