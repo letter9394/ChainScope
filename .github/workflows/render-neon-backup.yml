@@ -1,0 +1,40 @@
+name: ChainScope one-time Render backup
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chainscope-render-backup
+  cancel-in-progress: false
+
+jobs:
+  encrypted-backup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out the reviewed backup script
+        uses: actions/checkout@v4
+
+      - name: Verify the archive encryption format
+        run: node --test scripts/test-ci-backup-crypto.mjs
+
+      - name: Create and verify encrypted full backup
+        env:
+          CHAINSCOPE_MIGRATION_RENDER_URL: ${{ secrets.CHAINSCOPE_MIGRATION_RENDER_URL }}
+          CHAINSCOPE_MIGRATION_KEY_B64: ${{ secrets.CHAINSCOPE_MIGRATION_KEY_B64 }}
+          CHAINSCOPE_BACKUP_OUT: ${{ runner.temp }}/chainscope-encrypted-backup
+        run: node scripts/ci-render-backup.mjs
+
+      - name: Keep only the encrypted archive and its manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: chainscope-render-encrypted-backup
+          path: |
+            ${{ runner.temp }}/chainscope-encrypted-backup/chainscope-render-latest.dump.enc
+            ${{ runner.temp }}/chainscope-encrypted-backup/chainscope-render-latest.manifest.json
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
