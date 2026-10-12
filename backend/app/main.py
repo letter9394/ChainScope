@@ -110,11 +110,11 @@ async def lifespan(_: FastAPI):
     scheduler_task = None
     backtest_prewarm_task = None
     risk_drift_task = None
-    if settings.background_alerts_enabled:
+    if settings.background_alerts_enabled and not settings.migration_read_only:
         scheduler_task = asyncio.create_task(run_alert_scheduler(database, settings))
-    if settings.risk_drift_monitor_enabled:
+    if settings.risk_drift_monitor_enabled and not settings.migration_read_only:
         risk_drift_task = asyncio.create_task(_run_risk_drift_monitor(database, settings))
-    elif settings.risk_backtest_prewarm_enabled:
+    elif settings.risk_backtest_prewarm_enabled and not settings.migration_read_only:
         backtest_prewarm_task = asyncio.create_task(_prewarm_default_risk_backtest(settings))
     service_logger.info(
         "service_started",
@@ -124,6 +124,7 @@ async def lifespan(_: FastAPI):
             "background_alerts": settings.background_alerts_enabled,
             "risk_backtest_prewarm": settings.risk_backtest_prewarm_enabled,
             "risk_drift_monitor": settings.risk_drift_monitor_enabled,
+            "migration_read_only": settings.migration_read_only,
         },
     )
     yield
@@ -227,37 +228,45 @@ async def request_observability(request: Request, call_next):
         else uuid4().hex
     )
     started_at = perf_counter()
-    csrf_failure = _csrf_failure_reason(request, _settings_for_request())
-    if csrf_failure is not None:
+    settings = _settings_for_request()
+    if settings.migration_read_only and request.url.path != "/api/health":
         response = JSONResponse(
-            status_code=403,
-            content={"detail": "CSRF validation failed"},
-            headers={"X-CSRF-Error": "1"},
-        )
-        request_logger.warning(
-            "csrf_request_rejected",
-            extra={
-                "request_id": request_id,
-                "method": request.method,
-                "path": request.url.path,
-                "csrf_reason": csrf_failure,
-            },
+            status_code=503,
+            content={"detail": "Temporary database migration maintenance"},
+            headers={"Retry-After": "120", "X-ChainScope-Maintenance": "1"},
         )
     else:
-        try:
-            response = await call_next(request)
-        except Exception as exc:
-            request_logger.error(
-                "http_request_failed",
+        csrf_failure = _csrf_failure_reason(request, settings)
+        if csrf_failure is not None:
+            response = JSONResponse(
+                status_code=403,
+                content={"detail": "CSRF validation failed"},
+                headers={"X-CSRF-Error": "1"},
+            )
+            request_logger.warning(
+                "csrf_request_rejected",
                 extra={
                     "request_id": request_id,
                     "method": request.method,
                     "path": request.url.path,
-                    "duration_ms": round((perf_counter() - started_at) * 1000, 2),
-                    "error_type": type(exc).__name__,
+                    "csrf_reason": csrf_failure,
                 },
             )
-            raise
+        else:
+            try:
+                response = await call_next(request)
+            except Exception as exc:
+                request_logger.error(
+                    "http_request_failed",
+                    extra={
+                        "request_id": request_id,
+                        "method": request.method,
+                        "path": request.url.path,
+                        "duration_ms": round((perf_counter() - started_at) * 1000, 2),
+                        "error_type": type(exc).__name__,
+                    },
+                )
+                raise
     response.headers["X-Request-ID"] = request_id
     if request.url.path.startswith("/api/") or response.status_code >= 400:
         request_logger.info(
@@ -394,13 +403,13 @@ async def health(
     )
     scheduler_check = SchedulerHealth(
         **scheduler_runtime.snapshot(
-            enabled=settings.background_alerts_enabled,
+            enabled=settings.background_alerts_enabled and not settings.migration_read_only,
             interval_seconds=max(15, settings.alert_check_seconds),
         )
     )
     drift_check = RiskDriftHealth(
         **risk_drift_runtime.snapshot(
-            enabled=settings.risk_drift_monitor_enabled,
+            enabled=settings.risk_drift_monitor_enabled and not settings.migration_read_only,
             interval_seconds=max(3_600, settings.risk_drift_check_seconds),
         )
     )
@@ -428,7 +437,7 @@ async def health(
         environment=settings.chain_scope_env,
         market_provider="Binance Spot/Futures/Klines + CoinGecko + Gold API + Alternative.me",
         database="postgresql" if settings.resolved_database_url.startswith("postgresql") else "sqlite",
-        background_alerts=settings.background_alerts_enabled,
+        background_alerts=settings.background_alerts_enabled and not settings.migration_read_only,
         checks={
             "database": database_check,
             "scheduler": scheduler_check,

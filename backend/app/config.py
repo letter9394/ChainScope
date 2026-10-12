@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     auth_verification_resend_window_seconds: int = 60 * 60
     alert_check_seconds: int = 60
     background_alerts_enabled: bool = True
+    migration_read_only: bool = False
     public_app_url: str = "http://localhost:3100"
     brevo_api_url: str = "https://api.brevo.com/v3/smtp/email"
     brevo_api_key: str | None = None
