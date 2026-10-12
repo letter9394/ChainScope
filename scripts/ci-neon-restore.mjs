@@ -79,7 +79,11 @@ function postgresFailureCategory(result) {
   if (/could not translate host name|name or service not known|temporary failure in name resolution/i.test(diagnostic)) return 'DNS resolution failed';
   if (/timeout expired|timed out|no route to host/i.test(diagnostic)) return 'network timeout';
   if (/connection refused|server closed the connection unexpectedly/i.test(diagnostic)) return 'connection refused or closed';
-  if (/certificate|sslrootcert|SSL error|channel binding/i.test(diagnostic)) return 'TLS or channel-binding check failed';
+  if (/invalid sslrootcert|root certificate file.*does not exist|no root certificate|could not load root certificate/i.test(diagnostic)) return 'client trust store unavailable';
+  if (/certificate verify failed|self-signed certificate|unable to get local issuer|certificate.*does not match|hostname.*does not match/i.test(diagnostic)) return 'server certificate validation failed';
+  if (/channel binding.*(not supported|failed|not available)|channel binding required/i.test(diagnostic)) return 'channel-binding negotiation failed';
+  if (/server does not support SSL|could not establish SSL connection|SSL SYSCALL error/i.test(diagnostic)) return 'TLS negotiation failed';
+  if (/certificate|sslrootcert|SSL error|channel binding/i.test(diagnostic)) return 'other TLS or channel-binding error';
   if (/database .* does not exist|role .* does not exist/i.test(diagnostic)) return 'database or role not found';
   if (result.error?.code === 'ETIMEDOUT') return 'command timed out';
   return `unclassified client failure (exit ${result.status ?? 'unknown'})`;
