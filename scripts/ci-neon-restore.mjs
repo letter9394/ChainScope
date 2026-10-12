@@ -73,12 +73,23 @@ function postgresCommand(command, args, timeoutMs = 30000, maxBuffer = 8 * 1024 
     env: dockerEnv, encoding: 'utf8', timeout: timeoutMs, maxBuffer,
   });
 }
+function postgresFailureCategory(result) {
+  const diagnostic = String(result.stderr || '');
+  if (/password authentication failed|no password supplied/i.test(diagnostic)) return 'authentication rejected';
+  if (/could not translate host name|name or service not known|temporary failure in name resolution/i.test(diagnostic)) return 'DNS resolution failed';
+  if (/timeout expired|timed out|no route to host/i.test(diagnostic)) return 'network timeout';
+  if (/connection refused|server closed the connection unexpectedly/i.test(diagnostic)) return 'connection refused or closed';
+  if (/certificate|sslrootcert|SSL error|channel binding/i.test(diagnostic)) return 'TLS or channel-binding check failed';
+  if (/database .* does not exist|role .* does not exist/i.test(diagnostic)) return 'database or role not found';
+  if (result.error?.code === 'ETIMEDOUT') return 'command timed out';
+  return `unclassified client failure (exit ${result.status ?? 'unknown'})`;
+}
 function query(sql) {
   const result = postgresCommand('psql', [
     '-X', '-A', '-t', '-w', '-v', 'ON_ERROR_STOP=1',
     ...connectionArgs, '-c', sql,
   ], 60000);
-  if (result.status !== 0) fail('A Neon preflight or verification query failed; diagnostic output was suppressed.');
+  if (result.status !== 0) fail(`A Neon preflight or verification query failed: ${postgresFailureCategory(result)}. Raw diagnostics were suppressed.`);
   return result.stdout.trim();
 }
 
