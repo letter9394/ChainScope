@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 import { countCopyRows } from './pg-dump-row-counts.mjs';
 
@@ -61,6 +61,7 @@ const dockerBase = [
   '--user', `${process.getuid()}:${process.getgid()}`,
   '-e', 'PGPASSWORD', '-e', 'PGSSLMODE', '-e', 'PGSSLROOTCERT',
   '-e', 'PGCHANNELBINDING', '-e', 'PGCONNECT_TIMEOUT',
+  '-v', '/etc/ssl/certs/ca-certificates.crt:/etc/ssl/certs/ca-certificates.crt:ro',
   '-v', `${archiveDirectory}:/backup:ro`, 'postgres:18',
 ];
 const connectionArgs = [
@@ -98,6 +99,9 @@ function query(sql) {
 }
 
 async function main() {
+  if (!existsSync('/etc/ssl/certs/ca-certificates.crt')) {
+    fail('The CI runner system CA bundle is unavailable; restore was not started.');
+  }
   const pull = spawnSync('docker', ['pull', 'postgres:18'], {
     stdio: 'ignore', timeout: 180000,
   });
