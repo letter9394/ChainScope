@@ -7,6 +7,8 @@ import { countCopyRows } from './pg-dump-row-counts.mjs';
 const [archiveArgument, manifestArgument] = process.argv.slice(2);
 const targetSecret = process.env.CHAINSCOPE_MIGRATION_NEON_DIRECT_URL;
 const reportPath = process.env.CHAINSCOPE_RESTORE_REPORT;
+const priorReportPath = process.env.CHAINSCOPE_PRIOR_RESTORE_REPORT;
+const replacePriorRestore = process.env.CHAINSCOPE_REPLACE_PRIOR_RESTORE === 'true';
 const expectedHost = 'ep-lucky-frog-b392fzlp.c-4.ap-southeast-1.aws.neon.tech';
 
 function fail(message) { throw new Error(message); }
@@ -120,6 +122,10 @@ async function main() {
     const match = /^\d+;\s+\d+\s+\d+\s+TABLE public ([a-z_][a-z0-9_]*)\s/.exec(line);
     return match ? [match[1]] : [];
   });
+  const sequenceNames = lines.flatMap(line => {
+    const match = /^\d+;\s+\d+\s+\d+\s+SEQUENCE public ([a-z_][a-z0-9_]*)\s/.exec(line);
+    return match ? [match[1]] : [];
+  });
   if (tableNames.length !== manifest.tableDataEntries || new Set(tableNames).size !== tableNames.length) {
     fail('The backup catalog table count is inconsistent.');
   }
@@ -138,18 +144,44 @@ async function main() {
   if (!match || Number(match[1]) < 180000) {
     fail('The target database, owner, or PostgreSQL major version is unexpected.');
   }
-  const existingObjects = query("SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','S','f')");
-  if (existingObjects !== '0') fail('The target public schema is not empty. Restore was not started.');
+  const existingObjects = query("SELECT c.relkind || ':' || c.relname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','S','f') ORDER BY 1").split('\n').filter(Boolean);
+  let priorReport;
+  if (replacePriorRestore) {
+    if (!priorReportPath || !existsSync(priorReportPath)) fail('The prior verified restore report is missing. Replacement was not started.');
+    priorReport = JSON.parse(readFileSync(priorReportPath, 'utf8'));
+    const priorTableNames = Object.keys(priorReport.rowCounts || {}).sort();
+    const expectedObjects = [
+      ...tableNames.map(name => `r:${name}`),
+      ...sequenceNames.map(name => `S:${name}`),
+    ].sort();
+    if (priorReport.format !== 'chainscope-neon-restore-verification-v1' ||
+        priorReport.sourceTableCount !== tableNames.length ||
+        priorTableNames.join('\n') !== [...tableNames].sort().join('\n') ||
+        existingObjects.sort().join('\n') !== expectedObjects.join('\n')) {
+      fail('The existing Neon schema does not match the previous verified restore. Replacement was not started.');
+    }
+    for (const name of tableNames) {
+      if (query(`SELECT count(*) FROM public.${name}`) !== String(priorReport.rowCounts[name])) {
+        fail(`The existing Neon table ${name} changed since its verified restore. Replacement was not started.`);
+      }
+    }
+    if (query('SELECT version_num FROM public.alembic_version') !== priorReport.alembicRevision) {
+      fail('The existing Neon migration revision changed. Replacement was not started.');
+    }
+  } else if (existingObjects.length !== 0) {
+    fail('The target public schema is not empty. Restore was not started.');
+  }
 
   // Neon creates public already; omit only that one archive entry.
   const tocPath = resolve(archiveDirectory, 'chainscope-neon-restore.toc');
   writeFileSync(tocPath, lines.filter(line => !schemaEntry.test(line)).join('\n'), {
     mode: 0o600, flag: 'wx',
   });
-  console.log(`Target is empty and PostgreSQL 18; restoring ${tableNames.length} tables.`);
+  console.log(`${replacePriorRestore ? 'Prior verified copy is unchanged' : 'Target is empty'} and PostgreSQL 18; restoring ${tableNames.length} tables.`);
   const restore = postgresCommand('pg_restore', [
     ...connectionArgs, '--use-list=/backup/chainscope-neon-restore.toc',
     '--no-owner', '--no-acl', '--no-tablespaces',
+    ...(replacePriorRestore ? ['--clean', '--if-exists'] : []),
     '--exit-on-error', '--single-transaction', `/backup/${archiveName}`,
   ], 10 * 60 * 1000);
   if (restore.status !== 0) {
