@@ -7,10 +7,11 @@ on:
         description: Successful GitHub Actions run that produced the encrypted Render backup
         required: true
         type: string
-      prior_restore_run_id:
-        description: Prior verified Neon restore run; leave empty only when the target is empty
+      replace_prior_verified_copy:
+        description: Replace the previous verified Neon copy after checking it has not changed
         required: false
-        type: string
+        default: false
+        type: boolean
 
 permissions:
   actions: read
@@ -41,15 +42,6 @@ jobs:
           path: ${{ runner.temp }}/chainscope-encrypted-backup
           github-token: ${{ github.token }}
 
-      - name: Download the prior Neon verification report before replacing its copy
-        if: ${{ inputs.prior_restore_run_id != '' }}
-        uses: actions/download-artifact@v4
-        with:
-          run-id: ${{ inputs.prior_restore_run_id }}
-          name: chainscope-neon-restore-verification
-          path: ${{ runner.temp }}/chainscope-prior-restore
-          github-token: ${{ github.token }}
-
       - name: Authenticate and decrypt the archive on this runner
         env:
           CHAINSCOPE_MIGRATION_KEY_B64: ${{ secrets.CHAINSCOPE_MIGRATION_KEY_B64 }}
@@ -63,8 +55,8 @@ jobs:
         env:
           CHAINSCOPE_MIGRATION_NEON_DIRECT_URL: ${{ secrets.CHAINSCOPE_MIGRATION_NEON_DIRECT_URL }}
           CHAINSCOPE_RESTORE_REPORT: ${{ runner.temp }}/chainscope-neon-restore-verification.json
-          CHAINSCOPE_PRIOR_RESTORE_REPORT: ${{ runner.temp }}/chainscope-prior-restore/chainscope-neon-restore-verification.json
-          CHAINSCOPE_REPLACE_PRIOR_RESTORE: ${{ inputs.prior_restore_run_id != '' }}
+          CHAINSCOPE_PRIOR_RESTORE_REPORT_JSON: ${{ secrets.CHAINSCOPE_PRIOR_RESTORE_REPORT_JSON }}
+          CHAINSCOPE_REPLACE_PRIOR_RESTORE: ${{ inputs.replace_prior_verified_copy }}
         run: |
           node scripts/ci-neon-restore.mjs \
             "$RUNNER_TEMP/chainscope-render-latest.dump" \

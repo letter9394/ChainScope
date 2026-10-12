@@ -7,7 +7,7 @@ import { countCopyRows } from './pg-dump-row-counts.mjs';
 const [archiveArgument, manifestArgument] = process.argv.slice(2);
 const targetSecret = process.env.CHAINSCOPE_MIGRATION_NEON_DIRECT_URL;
 const reportPath = process.env.CHAINSCOPE_RESTORE_REPORT;
-const priorReportPath = process.env.CHAINSCOPE_PRIOR_RESTORE_REPORT;
+const priorReportJson = process.env.CHAINSCOPE_PRIOR_RESTORE_REPORT_JSON;
 const replacePriorRestore = process.env.CHAINSCOPE_REPLACE_PRIOR_RESTORE === 'true';
 const expectedHost = 'ep-lucky-frog-b392fzlp.c-4.ap-southeast-1.aws.neon.tech';
 
@@ -20,6 +20,7 @@ let target;
 try { target = new URL(targetSecret); }
 catch { fail('The Neon target URL is invalid. Its value was not logged.'); }
 delete process.env.CHAINSCOPE_MIGRATION_NEON_DIRECT_URL;
+delete process.env.CHAINSCOPE_PRIOR_RESTORE_REPORT_JSON;
 if (!['postgres:', 'postgresql:'].includes(target.protocol) ||
     target.hostname !== expectedHost ||
     decodeURIComponent(target.username) !== 'neondb_owner' ||
@@ -147,8 +148,9 @@ async function main() {
   const existingObjects = query("SELECT c.relkind || ':' || c.relname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','S','f') ORDER BY 1").split('\n').filter(Boolean);
   let priorReport;
   if (replacePriorRestore) {
-    if (!priorReportPath || !existsSync(priorReportPath)) fail('The prior verified restore report is missing. Replacement was not started.');
-    priorReport = JSON.parse(readFileSync(priorReportPath, 'utf8'));
+    if (!priorReportJson) fail('The prior verified restore report is missing. Replacement was not started.');
+    try { priorReport = JSON.parse(priorReportJson); }
+    catch { fail('The prior verified restore report is invalid. Replacement was not started.'); }
     const priorTableNames = Object.keys(priorReport.rowCounts || {}).sort();
     const expectedObjects = [
       ...tableNames.map(name => `r:${name}`),
