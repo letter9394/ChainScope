@@ -81,6 +81,9 @@ async function main() {
   if (typeof ip !== 'string' || !/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
     fail('The runner public IP is not a valid IPv4 address.');
   }
+  if (ip !== process.env.CHAINSCOPE_RUNNER_IP) {
+    fail('The runner public IP changed after the allowlist artifact was published. No dump was created.');
+  }
   console.log(`Temporarily allow this single runner IP in Render: ${ip}/32`);
   console.log('Waiting up to 25 minutes for Render PostgreSQL readiness.');
 
