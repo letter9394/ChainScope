@@ -1,0 +1,170 @@
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { readFileSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, resolve } from 'node:path';
+import { countCopyRows } from './pg-dump-row-counts.mjs';
+
+const [archiveArgument, manifestArgument] = process.argv.slice(2);
+const targetSecret = process.env.CHAINSCOPE_MIGRATION_NEON_DIRECT_URL;
+const reportPath = process.env.CHAINSCOPE_RESTORE_REPORT;
+const expectedHost = 'ep-lucky-frog-b392fzlp.c-4.ap-southeast-1.aws.neon.tech';
+
+function fail(message) { throw new Error(message); }
+if (!archiveArgument || !manifestArgument || !targetSecret || !reportPath) {
+  fail('Verified archive, manifest, Neon secret, or report path is missing.');
+}
+
+let target;
+try { target = new URL(targetSecret); }
+catch { fail('The Neon target URL is invalid. Its value was not logged.'); }
+delete process.env.CHAINSCOPE_MIGRATION_NEON_DIRECT_URL;
+if (!['postgres:', 'postgresql:'].includes(target.protocol) ||
+    target.hostname !== expectedHost ||
+    decodeURIComponent(target.username) !== 'neondb_owner' ||
+    decodeURIComponent(target.pathname) !== '/neondb' ||
+    !target.password ||
+    target.searchParams.get('sslmode') !== 'require' ||
+    target.searchParams.get('channel_binding') !== 'require') {
+  fail('The target must be the expected direct Neon database with TLS and channel binding.');
+}
+
+const archivePath = resolve(archiveArgument);
+const manifestPath = resolve(manifestArgument);
+const archiveDirectory = dirname(archivePath);
+const archiveName = basename(archivePath);
+const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+if (manifest.format !== 'chainscope-encrypted-pg-dump-v1' ||
+    manifest.sourceDatabase !== 'chainscope' ||
+    manifest.postgresMajor !== 18 ||
+    !Number.isInteger(manifest.tableDataEntries) || manifest.tableDataEntries < 1) {
+  fail('Unexpected backup manifest.');
+}
+const archive = readFileSync(archivePath);
+if (archive.length !== manifest.archiveBytes ||
+    createHash('sha256').update(archive).digest('hex') !== manifest.archiveSha256) {
+  fail('The decrypted archive does not match its manifest.');
+}
+if (statSync(archivePath).size > 100 * 1024 * 1024) {
+  fail('The archive is outside the approved size range.');
+}
+
+const dockerEnv = {
+  ...process.env,
+  PGPASSWORD: decodeURIComponent(target.password),
+  PGSSLMODE: 'verify-full',
+  PGSSLROOTCERT: 'system',
+  PGCHANNELBINDING: 'require',
+  PGCONNECT_TIMEOUT: '20',
+};
+const dockerBase = [
+  'run', '--rm', '--network', 'host',
+  '--user', `${process.getuid()}:${process.getgid()}`,
+  '-e', 'PGPASSWORD', '-e', 'PGSSLMODE', '-e', 'PGSSLROOTCERT',
+  '-e', 'PGCHANNELBINDING', '-e', 'PGCONNECT_TIMEOUT',
+  '-v', `${archiveDirectory}:/backup:ro`, 'postgres:18',
+];
+const connectionArgs = [
+  '--host', expectedHost, '--port', target.port || '5432',
+  '--username', 'neondb_owner', '--dbname', 'neondb', '--no-password',
+];
+
+function postgresCommand(command, args, timeoutMs = 30000, maxBuffer = 8 * 1024 * 1024) {
+  return spawnSync('docker', [...dockerBase, command, ...args], {
+    env: dockerEnv, encoding: 'utf8', timeout: timeoutMs, maxBuffer,
+  });
+}
+function query(sql) {
+  const result = postgresCommand('psql', [
+    '-X', '-A', '-t', '-w', '-v', 'ON_ERROR_STOP=1',
+    ...connectionArgs, '-c', sql,
+  ], 60000);
+  if (result.status !== 0) fail('A Neon preflight or verification query failed; diagnostic output was suppressed.');
+  return result.stdout.trim();
+}
+
+async function main() {
+  const pull = spawnSync('docker', ['pull', 'postgres:18'], {
+    stdio: 'ignore', timeout: 180000,
+  });
+  if (pull.status !== 0) fail('Could not obtain the PostgreSQL 18 client image.');
+
+  const listing = postgresCommand('pg_restore', [
+    '--list', `/backup/${archiveName}`,
+  ]);
+  if (listing.status !== 0) fail('Could not read the backup catalog.');
+  const lines = listing.stdout.split(/\r?\n/);
+  const schemaEntry = /^\d+;\s+\d+\s+\d+\s+SCHEMA - public(?:\s|$)/;
+  if (lines.filter(line => schemaEntry.test(line)).length !== 1) {
+    fail('Expected exactly one public-schema entry in the archive.');
+  }
+  const tableNames = lines.flatMap(line => {
+    const match = /^\d+;\s+\d+\s+\d+\s+TABLE public ([a-z_][a-z0-9_]*)\s/.exec(line);
+    return match ? [match[1]] : [];
+  });
+  if (tableNames.length !== manifest.tableDataEntries || new Set(tableNames).size !== tableNames.length) {
+    fail('The backup catalog table count is inconsistent.');
+  }
+  const dataSql = postgresCommand('pg_restore', [
+    '--data-only', '--file=-', `/backup/${archiveName}`,
+  ], 5 * 60 * 1000, 128 * 1024 * 1024);
+  if (dataSql.status !== 0) fail('Could not read all table data from the archive.');
+  const expectedRows = countCopyRows(dataSql.stdout);
+  if (expectedRows.size !== tableNames.length ||
+      tableNames.some(name => !expectedRows.has(name))) {
+    fail('The archive table data blocks do not match its catalog.');
+  }
+
+  const identity = query("SELECT current_database() || ':' || current_user || ':' || current_setting('server_version_num')");
+  const match = /^neondb:neondb_owner:(\d+)$/.exec(identity);
+  if (!match || Number(match[1]) < 180000) {
+    fail('The target database, owner, or PostgreSQL major version is unexpected.');
+  }
+  const existingObjects = query("SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','S','f')");
+  if (existingObjects !== '0') fail('The target public schema is not empty. Restore was not started.');
+
+  // Neon creates public already; omit only that one archive entry.
+  const tocPath = resolve(archiveDirectory, 'chainscope-neon-restore.toc');
+  writeFileSync(tocPath, lines.filter(line => !schemaEntry.test(line)).join('\n'), {
+    mode: 0o600, flag: 'wx',
+  });
+  console.log(`Target is empty and PostgreSQL 18; restoring ${tableNames.length} tables.`);
+  const restore = postgresCommand('pg_restore', [
+    ...connectionArgs, '--use-list=/backup/chainscope-neon-restore.toc',
+    '--no-owner', '--no-acl', '--no-tablespaces',
+    '--exit-on-error', '--single-transaction', `/backup/${archiveName}`,
+  ], 10 * 60 * 1000);
+  if (restore.status !== 0) {
+    fail('Neon restore failed; diagnostic output was suppressed. Do not switch the app.');
+  }
+
+  const restoredTables = query("SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname='public'");
+  if (Number(restoredTables) !== tableNames.length) fail('Neon table-count verification failed.');
+  const rowCounts = {};
+  for (const name of tableNames) {
+    const count = query(`SELECT count(*) FROM public.${name}`);
+    if (!/^\d+$/.test(count) || Number(count) !== expectedRows.get(name)) {
+      fail(`Neon row-count verification failed for ${name}.`);
+    }
+    rowCounts[name] = Number(count);
+  }
+  const revision = query('SELECT version_num FROM public.alembic_version');
+  if (!revision || revision.includes('\n')) fail('Neon migration revision verification failed.');
+  const totalRows = Object.values(rowCounts).reduce((sum, count) => sum + count, 0);
+  writeFileSync(reportPath, JSON.stringify({
+    format: 'chainscope-neon-restore-verification-v1',
+    checkedAtUtc: new Date().toISOString(),
+    backupArchiveSha256: manifest.archiveSha256,
+    sourceTableCount: tableNames.length,
+    restoredTableCount: Number(restoredTables),
+    rowCounts,
+    totalRows,
+    alembicRevision: revision,
+  }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  console.log(`Neon restore verified: ${tableNames.length} tables, ${totalRows} rows, Alembic revision present.`);
+  console.log('Render production still uses the old database. Do not switch DATABASE_URL yet.');
+}
+
+main().catch(error => {
+  console.error(`Neon restore stopped safely: ${error.message}`);
+  process.exitCode = 1;
+});
