@@ -59,7 +59,7 @@ jobs:
           name: chainscope-neon-encrypted-backup
           path: ${{ runner.temp }}/chainscope-neon-downloaded-backup
 
-      - name: Authenticate and fully read the downloaded archive
+      - name: Authenticate and restore the downloaded archive in isolation
         shell: bash
         env:
           CHAINSCOPE_MIGRATION_KEY_B64: ${{ secrets.CHAINSCOPE_MIGRATION_KEY_B64 }}
@@ -72,10 +72,5 @@ jobs:
             "$RUNNER_TEMP/chainscope-neon-downloaded-backup/chainscope-neon-latest.manifest.json" \
             "$archive"
           docker pull postgres:18 >/dev/null
-          docker run --rm --user "$(id -u):$(id -g)" \
-            -v "$RUNNER_TEMP:/backup:ro" postgres:18 \
-            pg_restore --list /backup/chainscope-neon-verify.dump >/dev/null
-          docker run --rm --user "$(id -u):$(id -g)" \
-            -v "$RUNNER_TEMP:/backup:ro" postgres:18 \
-            pg_restore --file=/dev/null /backup/chainscope-neon-verify.dump
-          echo 'Downloaded encrypted artifact authenticated and fully read.'
+          node scripts/verify-neon-restore.mjs "$archive"
+          echo 'Downloaded encrypted artifact authenticated and restored in isolation.'

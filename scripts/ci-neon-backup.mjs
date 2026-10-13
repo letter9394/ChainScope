@@ -1,10 +1,10 @@
 import { spawnSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
   encryptNeonArchive, parseNeonBackupUrl, verifyNeonEncryptedArchive,
 } from './neon-backup-crypto.mjs';
+import { verifyNeonArchiveRestores } from './verify-neon-restore.mjs';
 
 const image = 'postgres:18';
 const outputArgument = process.env.CHAINSCOPE_BACKUP_OUT;
@@ -55,57 +55,6 @@ function dockerClient(command, args, timeoutMs = 60000) {
   });
 }
 
-function localRestoreDrill() {
-  const name = `chainscope-neon-restore-check-${randomBytes(6).toString('hex')}`;
-  const password = randomBytes(24).toString('hex');
-  let started = false;
-  try {
-    const start = spawnSync('docker', [
-      'run', '--detach', '--name', name,
-      '-e', `POSTGRES_PASSWORD=${password}`, image,
-    ], { stdio: 'ignore', timeout: 30000 });
-    if (start.status !== 0) fail('Could not start the isolated PostgreSQL restore check.');
-    started = true;
-    let ready = false;
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      const check = spawnSync('docker', [
-        'exec', '--user', 'postgres', name, 'pg_isready', '--host', '127.0.0.1',
-      ], { stdio: 'ignore', timeout: 10000 });
-      if (check.status === 0) { ready = true; break; }
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000);
-    }
-    if (!ready) fail('The isolated PostgreSQL restore check did not become ready.');
-    const copy = spawnSync('docker', [
-      'cp', archivePath, `${name}:/tmp/chainscope-neon-backup.dump`,
-    ], { stdio: 'ignore', timeout: 30000 });
-    if (copy.status !== 0) fail('Could not copy the archive into the isolated restore check.');
-    const owner = spawnSync('docker', [
-      'exec', '--user', 'root', name, 'chown', 'postgres:postgres',
-      '/tmp/chainscope-neon-backup.dump',
-    ], { stdio: 'ignore', timeout: 30000 });
-    if (owner.status !== 0) fail('Could not prepare the isolated archive for restoration.');
-    const restore = spawnSync('docker', [
-      'exec', '--user', 'postgres', name, 'pg_restore',
-      '--no-owner', '--no-acl', '--clean', '--if-exists',
-      '--single-transaction', '--exit-on-error',
-      '--dbname', 'postgres', '/tmp/chainscope-neon-backup.dump',
-    ], { stdio: 'ignore', timeout: 10 * 60 * 1000 });
-    if (restore.status !== 0) fail('The archive could not be restored into isolated PostgreSQL.');
-    const verify = spawnSync('docker', [
-      'exec', '--user', 'postgres', name, 'psql', '-X', '-A', '-t',
-      '-v', 'ON_ERROR_STOP=1', '--dbname', 'postgres',
-      '-c', "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE'",
-    ], { encoding: 'utf8', timeout: 30000 });
-    if (verify.status !== 0 || Number(verify.stdout.trim()) < 11) {
-      fail('The isolated restore is missing expected public tables.');
-    }
-  } finally {
-    if (started) spawnSync('docker', ['rm', '--force', name], {
-      stdio: 'ignore', timeout: 30000,
-    });
-  }
-}
-
 function main() {
   if (!existsSync('/etc/ssl/certs/ca-certificates.crt')) {
     fail('The CI runner system CA bundle is unavailable.');
@@ -146,8 +95,7 @@ function main() {
       '--file', '/dev/null', '/backup/chainscope-neon-latest.dump',
     ], 10 * 60 * 1000);
     if (fullRead.status !== 0) fail('A complete read of the backup failed.');
-    localRestoreDrill();
-    console.log(`Isolated restore verified with ${tables.size} public tables.`);
+    verifyNeonArchiveRestores(archivePath);
     encryptNeonArchive(archivePath, encryptedPath, manifestPath, keySecret, tables.size);
     verifyNeonEncryptedArchive(encryptedPath, manifestPath, keySecret);
     console.log('Encrypted archive authenticated and ready for private-key recovery.');
