@@ -44,6 +44,10 @@ const connectionArgs = [
   '--host', source.host, '--port', source.port,
   '--username', source.username, '--dbname', source.database, '--no-password',
 ];
+const readinessArgs = [
+  '--host', source.host, '--port', source.port,
+  '--username', source.username, '--dbname', source.database, '--timeout', '15',
+];
 
 function dockerClient(command, args, timeoutMs = 60000) {
   return spawnSync('docker', [...dockerBase, command, ...args], {
@@ -111,8 +115,15 @@ function main() {
     stdio: 'ignore', timeout: 180000,
   });
   if (pull.status !== 0) fail('Could not obtain the PostgreSQL 18 client image.');
-  const ready = dockerClient('pg_isready', connectionArgs, 30000);
-  if (ready.status !== 0) fail('The Neon production database is not ready. No backup was created.');
+  let ready = false;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (dockerClient('pg_isready', readinessArgs, 30000).status === 0) {
+      ready = true;
+      break;
+    }
+    if (attempt < 2) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5000);
+  }
+  if (!ready) fail('The Neon production database is not ready after three attempts. No backup was created.');
   console.log('Creating a consistent PostgreSQL custom-format backup of Neon production.');
   try {
     const dump = dockerClient('pg_dump', [
