@@ -85,7 +85,7 @@ async function main() {
     fail('The runner public IP changed after the allowlist artifact was published. No dump was created.');
   }
   console.log(`Temporarily allow this single runner IP in Render: ${ip}/32`);
-  console.log('Waiting up to 25 minutes for Render PostgreSQL readiness.');
+  console.log('Waiting up to 25 minutes for Render PostgreSQL readiness and verified application maintenance.');
 
   mkdirSync(outputDirectory, { recursive: true, mode: 0o700 });
   const pull = spawnSync('docker', ['pull', image], {
@@ -113,6 +113,38 @@ async function main() {
     await delay(10000);
   }
   if (!ready) fail('Render PostgreSQL did not become ready. No dump was created.');
+
+  console.log('Render PostgreSQL is ready; waiting for application maintenance before the dump.');
+  let maintenanceSince = null;
+  let nextMaintenanceReminder = Date.now() + 60 * 1000;
+  while (Date.now() < deadline) {
+    let maintenanceActive = false;
+    try {
+      const check = await fetch(
+        `https://chainscope-web3.onrender.com/api/auth/csrf?migration_probe=${Date.now()}`,
+        { redirect: 'manual', cache: 'no-store', signal: AbortSignal.timeout(20000) },
+      );
+      maintenanceActive = check.status === 503 &&
+        check.headers.get('x-chainscope-maintenance') === '1';
+      await check.body?.cancel();
+    } catch {
+      // A transient HTTP failure is not evidence that writes are frozen.
+    }
+    if (maintenanceActive) {
+      maintenanceSince ??= Date.now();
+      if (Date.now() - maintenanceSince >= 60 * 1000) break;
+    } else {
+      maintenanceSince = null;
+    }
+    if (Date.now() >= nextMaintenanceReminder) {
+      console.log('Still waiting for 60 continuous seconds of verified application maintenance.');
+      nextMaintenanceReminder = Date.now() + 60 * 1000;
+    }
+    await delay(10000);
+  }
+  if (maintenanceSince === null || Date.now() - maintenanceSince < 60 * 1000) {
+    fail('Application maintenance was not verified for 60 seconds. No dump was created.');
+  }
 
   const archivePath = join(outputDirectory, 'chainscope-render-latest.dump');
   const encryptedPath = join(outputDirectory, 'chainscope-render-latest.dump.enc');
