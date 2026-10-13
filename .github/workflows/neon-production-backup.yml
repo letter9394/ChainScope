@@ -1,0 +1,43 @@
+name: ChainScope daily encrypted Neon backup
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Daily 03:17 China Standard Time; GitHub schedules may start late.
+    - cron: '17 19 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chainscope-neon-production-backup
+  cancel-in-progress: false
+
+jobs:
+  encrypted-backup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out the reviewed backup code
+        uses: actions/checkout@v4
+
+      - name: Test Neon backup encryption and target validation
+        run: node --test scripts/test-neon-backup-crypto.mjs
+
+      - name: Dump Neon production, prove isolated restorability, and encrypt
+        env:
+          CHAINSCOPE_MIGRATION_NEON_DIRECT_URL: ${{ secrets.CHAINSCOPE_MIGRATION_NEON_DIRECT_URL }}
+          CHAINSCOPE_MIGRATION_KEY_B64: ${{ secrets.CHAINSCOPE_MIGRATION_KEY_B64 }}
+          CHAINSCOPE_BACKUP_OUT: ${{ runner.temp }}/chainscope-neon-encrypted-backup
+        run: node scripts/ci-neon-backup.mjs
+
+      - name: Retain only the encrypted archive and manifest for 14 days
+        uses: actions/upload-artifact@v4
+        with:
+          name: chainscope-neon-encrypted-backup
+          path: |
+            ${{ runner.temp }}/chainscope-neon-encrypted-backup/chainscope-neon-latest.dump.enc
+            ${{ runner.temp }}/chainscope-neon-encrypted-backup/chainscope-neon-latest.manifest.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
