@@ -41,3 +41,41 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+
+  verify-published-backup:
+    needs: encrypted-backup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out the reviewed verification code
+        uses: actions/checkout@v4
+
+      - name: Download the uploaded encrypted artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: chainscope-neon-encrypted-backup
+          path: ${{ runner.temp }}/chainscope-neon-downloaded-backup
+
+      - name: Authenticate and fully read the downloaded archive
+        shell: bash
+        env:
+          CHAINSCOPE_MIGRATION_KEY_B64: ${{ secrets.CHAINSCOPE_MIGRATION_KEY_B64 }}
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/chainscope-neon-verify.dump"
+          trap 'rm -f -- "$archive" "$archive.sha256"' EXIT
+          node scripts/decrypt-neon-backup.mjs \
+            "$RUNNER_TEMP/chainscope-neon-downloaded-backup/chainscope-neon-latest.dump.enc" \
+            "$RUNNER_TEMP/chainscope-neon-downloaded-backup/chainscope-neon-latest.manifest.json" \
+            "$archive"
+          docker pull postgres:18 >/dev/null
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -v "$RUNNER_TEMP:/backup:ro" postgres:18 \
+            pg_restore --list /backup/chainscope-neon-verify.dump >/dev/null
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -v "$RUNNER_TEMP:/backup:ro" postgres:18 \
+            pg_restore --file=/dev/null /backup/chainscope-neon-verify.dump
+          echo 'Downloaded encrypted artifact authenticated and fully read.'
