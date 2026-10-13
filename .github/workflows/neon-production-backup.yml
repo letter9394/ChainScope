@@ -19,7 +19,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Check out the reviewed backup code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Test Neon backup encryption and target validation
         run: node --test scripts/test-neon-backup-crypto.mjs
@@ -32,7 +32,7 @@ jobs:
         run: node scripts/ci-neon-backup.mjs
 
       - name: Retain only the encrypted archive and manifest for 14 days
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: chainscope-neon-encrypted-backup
           path: |
@@ -51,10 +51,10 @@ jobs:
       contents: read
     steps:
       - name: Check out the reviewed verification code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Download the uploaded encrypted artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: chainscope-neon-encrypted-backup
           path: ${{ runner.temp }}/chainscope-neon-downloaded-backup
