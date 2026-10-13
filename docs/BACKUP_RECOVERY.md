@@ -24,7 +24,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-postgres-ba
 
 迁移用的 GitHub Actions 工作流仅备份旧 Render 库，**不会**备份现在的 Neon 生产库。新的 `.github/workflows/neon-production-backup.yml` 每天北京时间约 03:17 自动运行，也可在 GitHub Actions 中手动运行。GitHub 定时任务可能延迟；公开仓库连续 60 天没有活动时，定时工作流可能被停用，因此要定期核对最近一次成功记录。
 
-工作流使用已保存在 GitHub Actions Secrets 中的 Neon direct URL 和 32 字节备份密钥；连接时强制验证服务器证书及通道绑定。它先 `pg_dump -Fc`，完整读取归档，然后在运行器上的临时 PostgreSQL 18 中真实恢复并检查表数。全部通过后才生成 AES-256-GCM 加密归档和包含 SHA-256 的清单；只上传密文与清单，明文和临时数据库随运行器销毁。失败时不会产生成功备份。归档超过 30 MiB 时安全失败，需先评估 GitHub 免费存储额度再调整上限。
+工作流使用已保存在 GitHub Actions Secrets 中的 Neon direct URL 和 32 字节备份密钥；连接时强制验证服务器证书及通道绑定。它先 `pg_dump -Fc`，完整读取归档，然后在运行器上的临时 PostgreSQL 18 中真实恢复并检查表数。全部通过后才生成 AES-256-GCM 加密归档和包含 SHA-256 的清单；只上传密文与清单。第二个独立任务会重新下载上传的文件，认证解密并完整读取归档；这两个任务都成功，才算本次备份成功。明文和临时数据库随运行器销毁。归档超过 30 MiB 时安全失败，需先评估 GitHub 免费存储额度再调整上限。
 
 GitHub 产物仅保留 14 天，**不是永久离线备份**。至少每周下载一份成功运行的加密归档和同次运行的清单，保存在受保护且与此电脑分开的地方；备份密钥也必须另行保管，不能只依赖本机 DPAPI 文件或不可读回的 GitHub Secret。下载文件不可上传到公开仓库、发到聊天，或与密钥放在同一公开位置。在原 Windows 账户上，可用本机 DPAPI 密钥进行不显示密钥的离线验证；脚本会清理临时明文：
 
