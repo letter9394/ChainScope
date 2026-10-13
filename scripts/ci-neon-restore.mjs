@@ -79,6 +79,8 @@ function postgresCommand(command, args, timeoutMs = 30000, maxBuffer = 8 * 1024 
 }
 function postgresFailureCategory(result) {
   const diagnostic = String(result.stderr || '');
+  const sqlstate = /(?:ERROR|FATAL):\s*([0-9A-Z]{5})(?:\s|$)/.exec(diagnostic);
+  if (sqlstate) return `database SQLSTATE ${sqlstate[1]}`;
   if (/password authentication failed|no password supplied/i.test(diagnostic)) return 'authentication rejected';
   if (/could not translate host name|name or service not known|temporary failure in name resolution/i.test(diagnostic)) return 'DNS resolution failed';
   if (/timeout expired|timed out|no route to host/i.test(diagnostic)) return 'network timeout';
@@ -99,7 +101,7 @@ let queryAttempt = 0;
 function query(sql) {
   queryAttempt += 1;
   const result = postgresCommand('psql', [
-    '-X', '-A', '-t', '-w', '-v', 'ON_ERROR_STOP=1',
+    '-X', '-A', '-t', '-w', '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=sqlstate',
     ...connectionArgs, '-c', sql,
   ], 60000);
   if (result.status !== 0) fail(`Neon query ${queryAttempt} failed: ${postgresFailureCategory(result)}. Raw diagnostics were suppressed.`);
@@ -150,7 +152,7 @@ async function main() {
   if (!match || Number(match[1]) < 180000) {
     fail('The target database, owner, or PostgreSQL major version is unexpected.');
   }
-  const existingObjects = query("SELECT c.relkind || ':' || c.relname FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','S','f') ORDER BY 1").split('\n').filter(Boolean);
+  const existingObjects = query("SELECT c.relkind::text || ':' || c.relname::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','S','f') ORDER BY 1").split('\n').filter(Boolean);
   let priorReport;
   if (replacePriorRestore) {
     if (!priorReportJson) fail('The prior verified restore report is missing. Replacement was not started.');
