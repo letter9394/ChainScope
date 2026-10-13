@@ -89,15 +89,20 @@ function postgresFailureCategory(result) {
   if (/server does not support SSL|could not establish SSL connection|SSL SYSCALL error/i.test(diagnostic)) return 'TLS negotiation failed';
   if (/certificate|sslrootcert|SSL error|channel binding/i.test(diagnostic)) return 'other TLS or channel-binding error';
   if (/database .* does not exist|role .* does not exist/i.test(diagnostic)) return 'database or role not found';
+  if (/relation .* does not exist/i.test(diagnostic)) return 'expected relation missing';
+  if (/permission denied/i.test(diagnostic)) return 'database permission denied';
+  if (/syntax error at or near|invalid input syntax/i.test(diagnostic)) return 'database query rejected';
   if (result.error?.code === 'ETIMEDOUT') return 'command timed out';
   return `unclassified client failure (exit ${result.status ?? 'unknown'})`;
 }
+let queryAttempt = 0;
 function query(sql) {
+  queryAttempt += 1;
   const result = postgresCommand('psql', [
     '-X', '-A', '-t', '-w', '-v', 'ON_ERROR_STOP=1',
     ...connectionArgs, '-c', sql,
   ], 60000);
-  if (result.status !== 0) fail(`A Neon preflight or verification query failed: ${postgresFailureCategory(result)}. Raw diagnostics were suppressed.`);
+  if (result.status !== 0) fail(`Neon query ${queryAttempt} failed: ${postgresFailureCategory(result)}. Raw diagnostics were suppressed.`);
   return result.stdout.trim();
 }
 
