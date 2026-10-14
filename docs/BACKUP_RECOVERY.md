@@ -26,7 +26,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-postgres-ba
 
 工作流使用已保存在 GitHub Actions Secrets 中的 Neon direct URL 和 32 字节备份密钥；连接时强制验证服务器证书及通道绑定。它先 `pg_dump -Fc`，完整读取归档，然后在运行器上的临时 PostgreSQL 18 中真实恢复并检查表数。全部通过后才生成 AES-256-GCM 加密归档和包含 SHA-256 的清单；只上传密文与清单。第二个独立任务会重新下载上传的文件，认证解密，并在断网的临时 PostgreSQL 18 中再次真实恢复、核对关键表及迁移版本；这两个任务都成功，才算本次备份成功。明文和临时数据库随运行器销毁。归档超过 30 MiB 时安全失败，需先评估 GitHub 免费存储额度再调整上限。
 
-GitHub 产物仅保留 14 天，**不是永久离线备份**。至少每周下载一份成功运行的加密归档和同次运行的清单，保存在受保护且与此电脑分开的地方；备份密钥也必须另行保管，不能只依赖本机 DPAPI 文件或不可读回的 GitHub Secret。下载文件不可上传到公开仓库、发到聊天，或与密钥放在同一公开位置。在原 Windows 账户上，可用本机 DPAPI 密钥进行不显示密钥的离线验证；脚本会清理临时明文：
+GitHub 产物按加密归档大小自动保留：不超过 0.5 MiB 保留 90 天，不超过 3 MiB 保留 30 天，不超过 12 MiB 保留 7 天，更大但仍在 30 MiB 备份上限内的归档保留 3 天。按每天一份估算，这些档位的理论存储上限合计约 309 MiB；GitHub Free 的 500 MB 额度还会被账号下的其他 Actions 产物和 Packages 共用，手动多次运行也会增加占用。**这不是永久离线备份，也不能代替账号级费用保护。**至少每周下载一份成功运行的加密归档和同次运行的清单，保存在受保护且与此电脑分开的地方；备份密钥也必须另行保管，不能只依赖本机 DPAPI 文件或不可读回的 GitHub Secret。下载文件不可上传到公开仓库、发到聊天，或与密钥放在同一公开位置。在原 Windows 账户上，可用本机 DPAPI 密钥进行不显示密钥的离线验证；脚本会清理临时明文：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-downloaded-neon-backup.ps1 -EncryptedPath '<加密归档路径>' -ManifestPath '<同次运行的清单路径>'
