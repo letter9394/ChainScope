@@ -32,6 +32,12 @@ GitHub 产物按加密归档大小自动保留：不超过 0.5 MiB 保留 90 天
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-downloaded-neon-backup.ps1 -EncryptedPath '<加密归档路径>' -ManifestPath '<同次运行的清单路径>'
 ```
 
+如果原 Windows 账户已不可用，或要验证密码管理器里**独立保管**的密钥，可在可信的 Windows 电脑上加 `-KeyFromPrompt` 运行同一脚本。先运行命令，看到隐藏输入提示后，才从密码管理器复制密钥并粘贴到该提示，按 Enter；不要把密钥放进命令行、聊天、截图或仓库。此模式**不会读取本机 DPAPI 文件**。脚本认证解密、核对 SHA-256、完整读取 PostgreSQL 归档后输出 `SEPARATE_KEY_VERIFIED_OK`；它会清理临时明文、进程环境变量，以及仍是该密钥的当前剪贴板。需要本机 Node.js 和仓库 `.tools\postgresql-client` 中的 PostgreSQL 18 `pg_restore.exe`；此离线检查不是实际恢复到数据库。
+
+```powershell
+powershell -NoProfile -Sta -ExecutionPolicy Bypass -File .\scripts\verify-downloaded-neon-backup.ps1 -EncryptedPath '<加密归档路径>' -ManifestPath '<同次运行的清单路径>' -KeyFromPrompt
+```
+
 若需要保留明文用于独立测试库恢复，才手动在受保护目录解密：
 
 ```powershell
@@ -47,7 +53,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-postgres-ba
 1. 在 GitHub Actions 的 **ChainScope daily encrypted Neon backup** 中，选最近一次两个任务（`encrypted-backup`、`verify-published-backup`）均成功的运行。
 2. 下载该次运行的加密归档及同次清单，核对清单中的 SHA-256；只保存密文，绝不把明文归档放入公开仓库或聊天。
 3. 把密文和清单复制到受保护的另一台设备或独立存储位置，并确认能够重新读取。GitHub 产物会到期，本机单份也不是异地备份。
-4. 由原 Windows 账户持有人通过可信的密码管理器或离线介质另行保管解密密钥，和密文分开放置；不要通过聊天发送密钥。只保存 GitHub Secret 或本机 DPAPI 文件，不能保证未来可恢复。
+4. 由原 Windows 账户持有人通过可信的密码管理器或离线介质另行保管解密密钥，和密文分开放置；不要通过聊天发送密钥。只保存 GitHub Secret 或本机 DPAPI 文件，不能保证未来可恢复。首次另存后，用上面的 `-KeyFromPrompt` 模式验证独立保存的密钥确实能打开下载副本。
 
 ## 无登录、只读的线上验收
 
