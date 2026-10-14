@@ -41,3 +41,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-postgres-ba
 ```
 
 解密会产生含个人数据的明文归档，应仅放在受保护的本地目录。脚本不会覆盖已有文件。正式故障恢复时，先在新的空测试数据库恢复最新可用归档，核对账户、规则、事件和迁移版本，再安排停写与切换；**绝不把旧迁移快照或每日备份直接覆盖仍在写入的生产 Neon**。旧 Render 免费数据库预计 2026-10-21 到期，不能把它当长期回退方案。Neon 免费档的短时即时恢复也不能代替这些独立备份。
+
+## 每周异地留存清单
+
+1. 在 GitHub Actions 的 **ChainScope daily encrypted Neon backup** 中，选最近一次两个任务（`encrypted-backup`、`verify-published-backup`）均成功的运行。
+2. 下载该次运行的加密归档及同次清单，核对清单中的 SHA-256；只保存密文，绝不把明文归档放入公开仓库或聊天。
+3. 把密文和清单复制到受保护的另一台设备或独立存储位置，并确认能够重新读取。GitHub 产物会到期，本机单份也不是异地备份。
+4. 由原 Windows 账户持有人通过可信的密码管理器或离线介质另行保管解密密钥，和密文分开放置；不要通过聊天发送密钥。只保存 GitHub Secret 或本机 DPAPI 文件，不能保证未来可恢复。
+
+## 无登录、只读的线上验收
+
+`.github/workflows/production-smoke.yml` 每天北京时间约 05:17 检查公开 `/api/health`、首页和 `/api/auth/csrf`。它只发 GET 请求，不登录、不创建测试预警、不触碰真实用户记录。免费 Web Service 冷启动或 GitHub 定时延迟可能发生，因此脚本先重试，再将持续异常标记为失败；它不会因为一次慢响应就判定生产故障。可在 GitHub Actions 手动运行同一工作流进行复查。Codex 监控只在持续失败、定时任务停用或长时间没有成功运行时提醒；正常时保持安静。登录后的数据隔离与预警业务仍由自动化测试及用户验收覆盖，公开探针不能替代它们。

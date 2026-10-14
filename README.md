@@ -153,9 +153,9 @@ docker compose up --build
 
 仓库根目录提供 `render.yaml` 和一体化 `Dockerfile`。部署时，前端会导出为静态页面并由 FastAPI 同域提供，因此只有一个公开网址，不需要额外配置跨域地址。将 GitHub 仓库作为 Render Blueprint 导入即可。
 
-Blueprint 会同时创建 Web Service 和 PostgreSQL，并自动注入 `DATABASE_URL` 与随机 `SESSION_SECRET`。首次更新现有 Blueprint 时，需要在 Render 控制台执行一次 **Manual Sync**，让新增数据库资源生效。
+`render.yaml` 仍保留旧 Render PostgreSQL 资源作为迁移回退参考；现有生产服务的 `DATABASE_URL` 由管理员在 Render 控制台单独管理，指向 Neon 新加坡生产库。**不要重新同步 Blueprint 时覆盖这个变量，也不要把数据库连接串提交到仓库。**全新部署须自行配置 PostgreSQL 和 `DATABASE_URL`，并先完成迁移及恢复验证。
 
-Render 免费 Web Service 闲置后会休眠，所以休眠期间后台检查暂停，首次唤醒也可能较慢。免费 PostgreSQL 目前会在创建 30 天后到期，适合作品集演示而非正式生产；长期运行应升级数据库。若需要严格全天候分钟级任务，可升级实例或改用付费 Render Cron Job/独立 Worker。
+Render 免费 Web Service 闲置后会休眠，所以休眠期间后台检查暂停，首次唤醒也可能较慢；这套免费配置不承诺全天候分钟级预警。生产数据已于 2026-10-13 从 Render 免费 PostgreSQL 迁至 Neon Free；旧 Render 库只是迁移快照和短期回退，预计 2026-10-21 到期，不能当作持续备份。每日加密 Neon 全库备份、独立恢复验证及只读线上验收由 GitHub Actions 执行，仍须异地保存备份与解密密钥；详见[备份与恢复说明](docs/BACKUP_RECOVERY.md)。
 
 账户页的“下载我的数据”是当前账号的可读 JSON 副本，下载后应保存在安全位置。它不包含其他用户或全库系统数据，也没有自动恢复功能，**不能代替 PostgreSQL 数据库备份**。迁移或续期数据库前，仍需由有数据库权限的管理员执行并验证完整数据库备份。
 

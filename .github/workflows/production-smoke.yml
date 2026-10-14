@@ -1,0 +1,28 @@
+name: ChainScope read-only production smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Daily around 05:17 China Standard Time; GitHub schedules may start late.
+    - cron: '17 21 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chainscope-production-smoke
+  cancel-in-progress: false
+
+jobs:
+  read-only-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Test the smoke-check logic without network access
+        run: node --test scripts/test-production-smoke.mjs
+      - name: Check public health, homepage, and auth entry
+        run: node scripts/check-production-smoke.mjs

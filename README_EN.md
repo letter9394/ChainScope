@@ -54,7 +54,7 @@ Application startup automatically applies versioned Alembic migrations. For a ma
 
 ## Public deployment
 
-The root `render.yaml` and multi-stage `Dockerfile` deploy the exported Next.js frontend and FastAPI backend as one same-origin Render service. On Render's free tier, the service sleeps when idle and its SQLite data is ephemeral. Use PostgreSQL or a paid persistent disk for production persistence.
+The root `render.yaml` and multi-stage `Dockerfile` deploy the exported Next.js frontend and FastAPI backend as one same-origin Render service. The current production database was migrated from Render Free PostgreSQL to Neon Free PostgreSQL on 2026-10-13. `DATABASE_URL` is operator-managed in Render and must not be overwritten by a Blueprint sync or committed to Git. The old Render database is retained only as a short-lived migration snapshot, not as a current backup. The free web service sleeps when idle, so background checks are not guaranteed to run continuously. Daily encrypted Neon backups, independent restore verification, and a read-only public smoke check run through GitHub Actions; see [backup and recovery](docs/BACKUP_RECOVERY.md) for the off-device retention requirement.
 
 The browser obtains a signed token from `GET /api/auth/csrf`. Every `POST`, `PUT`, `PATCH`, and `DELETE` request must return that token in the `X-CSRF-Token` header while the matching host-only cookie is present. Requests from untrusted origins are rejected with `403` before route logic runs.
 
