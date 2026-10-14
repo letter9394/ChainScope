@@ -15,7 +15,18 @@ $keyPath = Join-Path $BackupDirectory 'chainscope-github-backup-key.dpapi'
 if (-not (Test-Path -LiteralPath $keyPath -PathType Leaf)) {
     throw 'The local DPAPI-protected backup key was not found.'
 }
-$node = (Get-Command node.exe -ErrorAction Stop).Source
+$nodeCommand = Get-Command node.exe -ErrorAction SilentlyContinue
+if ($nodeCommand) {
+    $node = $nodeCommand.Source
+}
+else {
+    # Codex bundles Node, but it may not be on the user's ordinary PowerShell PATH.
+    $bundledNode = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe'
+    if (-not (Test-Path -LiteralPath $bundledNode -PathType Leaf)) {
+        throw 'Node.js was not found on PATH or in the local Codex runtime. No backup was changed.'
+    }
+    $node = $bundledNode
+}
 $powerShell = (Get-Command powershell.exe -ErrorAction Stop).Source
 $temporaryArchive = Join-Path ([IO.Path]::GetTempPath()) ('chainscope-neon-verify-' + [Guid]::NewGuid().ToString('N') + '.dump')
 $temporaryChecksum = "$temporaryArchive.sha256"
