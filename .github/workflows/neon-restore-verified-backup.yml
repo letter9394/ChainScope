@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Check out the reviewed restore script
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Test the backup and row-count parsers
         run: |
@@ -35,7 +35,7 @@ jobs:
           node --test scripts/test-pg-dump-row-counts.mjs
 
       - name: Download the encrypted Render backup
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           run-id: ${{ inputs.backup_run_id }}
           name: chainscope-render-encrypted-backup
@@ -63,7 +63,7 @@ jobs:
             "$RUNNER_TEMP/chainscope-encrypted-backup/chainscope-render-latest.manifest.json"
 
       - name: Keep the non-sensitive verification report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: chainscope-neon-restore-verification
           path: ${{ runner.temp }}/chainscope-neon-restore-verification.json

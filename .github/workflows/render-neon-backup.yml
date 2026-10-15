@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Check out the reviewed backup script
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Verify the archive encryption format
         run: node --test scripts/test-ci-backup-crypto.mjs
@@ -34,7 +34,7 @@ jobs:
           printf 'runner_ip=%s\n' "$ip" >> "$GITHUB_OUTPUT"
 
       - name: Publish the temporary runner IP for one-address allowlisting
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: chainscope-runner-ip
           path: ${{ runner.temp }}/chainscope-runner-ip.txt
@@ -50,7 +50,7 @@ jobs:
         run: node scripts/ci-render-backup.mjs
 
       - name: Keep only the encrypted archive and its manifest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: chainscope-render-encrypted-backup
           path: |
