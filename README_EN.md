@@ -17,12 +17,8 @@ On October 5, 2026, a temporary BTC risk-score threshold of `≥ 0` produced an 
 - Moving averages, volume, and a separate MACD pane are enabled by default, with configurable MA/BOLL/RSI/MACD parameters, crosshair OHLC inspection, fullscreen, pan, and zoom controls
 - In-app candles update incrementally every two seconds; the gold fallback can switch between a live PAXG proxy and delayed Massive XAU/USD history
 - Transparent 0–100 score based on volatility, maximum drawdown, volume anomaly, and momentum
-- A three-year rolling historical backtest reports 1/3/7-day outcomes, market-regime splits, base-rate lift, precision/recall, and embargoed walk-forward validation
-- An interpretable v0.4 logistic-regression experiment compares momentum, volatility, drawdown, volume, moving-average distance, and streak features against v0.3; promotion requires strict single-asset gates and at least two passing assets across BTC, ETH, and SOL
-- A v0.5 label-and-calibration study compares fixed 3% drawdowns, volatility-normalized events, and the training set's worst 25%, reporting Brier Score, prevalence-normalized Brier Skill, ECE, and 95% confidence intervals from a 14-day block bootstrap without changing the live model unless at least two assets improve
-- A v0.6 cross-horizon stability gate requires the same alternative label to pass the complete holdout criteria at both three-day and seven-day horizons before cross-asset review
-- A v0.7 temporal stability monitor compares event prevalence, precision, lift, Brier Skill, and calibration across three consecutive holdout periods, classifying the result as stable, mixed, deteriorating, or data-insufficient without automatically changing the live model
-- A v0.8 drift-monitoring loop persists one daily snapshot per asset, emits a deduplicated event only on a real status transition, exposes history through `/api/risk/drift`, and reports its runtime in `/api/health`
+- Historical backtests, candidate-model studies, and drift research remain backend capabilities; they no longer crowd the user dashboard or appear as trading signals
+- A background drift loop persists daily asset snapshots, emits deduplicated events on real state transitions, and reports its runtime in `/api/health`
 - Identical backtest evaluations are cached server-side for one hour and all three crypto studies are prewarmed after startup without blocking health checks; `X-ChainScope-Cache` exposes hit/miss diagnostics
 - Live CoinDesk news with source links, sentiment labels, and on-demand English-to-Chinese translation
 - Optional OpenAI-compatible news analysis with an honest rule-based fallback

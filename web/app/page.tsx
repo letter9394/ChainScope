@@ -8,7 +8,6 @@ import { DerivativesPanel } from "@/components/DerivativesPanel";
 import { MarketCard } from "@/components/MarketCard";
 import { NewsPanel } from "@/components/NewsPanel";
 import { RiskPanel } from "@/components/RiskPanel";
-import { RiskBacktestPanel } from "@/components/RiskBacktestPanel";
 import { CandlestickChart } from "@/components/CandlestickChart";
 import { ChartErrorBoundary } from "@/components/ChartErrorBoundary";
 import { GoldChart } from "@/components/GoldChart";
@@ -30,9 +29,6 @@ import {
   getNews,
   getNotificationSettings,
   getRisk,
-  getRiskBacktest,
-  getRiskBacktestPortfolio,
-  getRiskDriftMonitor,
   getWatchlist,
   loginUser,
   logoutUser,
@@ -54,9 +50,6 @@ import type {
   NewsResponse,
   NotificationSettings,
   RiskAssessment,
-  RiskBacktestPortfolioResult,
-  RiskBacktestResult,
-  RiskDriftMonitorResult,
 } from "@/lib/types";
 
 interface ChartQuote {
@@ -77,19 +70,11 @@ const priceCurrency = new Intl.NumberFormat("en-US", {
 const MARKET_REFRESH_MS = 15_000;
 const RISK_REFRESH_MS = 10_000;
 const ALERT_REFRESH_MS = 60_000;
-const DRIFT_REFRESH_MS = 60_000;
 
 export default function Home() {
   const [markets, setMarkets] = useState<MarketCoin[]>([]);
   const [selectedId, setSelectedId] = useState("bitcoin");
   const [risk, setRisk] = useState<RiskAssessment | null>(null);
-  const [riskBacktest, setRiskBacktest] = useState<RiskBacktestResult | null>(null);
-  const [riskBacktestPortfolio, setRiskBacktestPortfolio] = useState<RiskBacktestPortfolioResult | null>(null);
-  const [backtestPortfolioError, setBacktestPortfolioError] = useState<string | null>(null);
-  const [backtestLoading, setBacktestLoading] = useState(true);
-  const [backtestError, setBacktestError] = useState<string | null>(null);
-  const [riskDriftMonitor, setRiskDriftMonitor] = useState<RiskDriftMonitorResult | null>(null);
-  const [riskDriftError, setRiskDriftError] = useState<string | null>(null);
   const [news, setNews] = useState<NewsResponse | null>(null);
   const [watchlist, setWatchlist] = useState<string[]>([]);
   const [user, setUser] = useState<AuthUser | null | undefined>(undefined);
@@ -548,43 +533,6 @@ export default function Home() {
   }, [selectedId]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    void getRiskBacktestPortfolio(controller.signal)
-      .then((result) => {
-        setRiskBacktestPortfolio(result);
-        setBacktestPortfolioError(null);
-      })
-      .catch((reason) => {
-        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
-          setBacktestPortfolioError(reason instanceof Error ? reason.message : "跨资产验证加载失败");
-        }
-      });
-    return () => controller.abort();
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    const loadDriftMonitor = (signal?: AbortSignal) => {
-      void getRiskDriftMonitor(signal)
-        .then((result) => {
-          setRiskDriftMonitor(result);
-          setRiskDriftError(null);
-        })
-        .catch((reason) => {
-          if (!(reason instanceof DOMException && reason.name === "AbortError")) {
-            setRiskDriftError(reason instanceof Error ? reason.message : "模型漂移监控加载失败");
-          }
-        });
-    };
-    loadDriftMonitor(controller.signal);
-    const refreshTimer = window.setInterval(() => loadDriftMonitor(), DRIFT_REFRESH_MS);
-    return () => {
-      controller.abort();
-      window.clearInterval(refreshTimer);
-    };
-  }, []);
-
-  useEffect(() => {
     if (selectedId === "gold") return;
     const refreshTimer = window.setInterval(() => {
       void getRisk(selectedId, 30)
@@ -592,28 +540,6 @@ export default function Home() {
         .catch(() => undefined);
     }, RISK_REFRESH_MS);
     return () => window.clearInterval(refreshTimer);
-  }, [selectedId]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    setRiskBacktest(null);
-    setBacktestError(null);
-    if (selectedId === "gold") {
-      setBacktestLoading(false);
-      return () => controller.abort();
-    }
-    setBacktestLoading(true);
-    void getRiskBacktest(selectedId, controller.signal)
-      .then((result) => setRiskBacktest(result))
-      .catch((reason) => {
-        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
-          setBacktestError(reason instanceof Error ? reason.message : "历史回测加载失败");
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setBacktestLoading(false);
-      });
-    return () => controller.abort();
   }, [selectedId]);
 
   return (
@@ -741,18 +667,6 @@ export default function Home() {
         snapshot={risk?.market_context ?? null}
         liquidation={liquidationStats}
         unavailable={selectedId === "gold"}
-      />
-
-      <RiskBacktestPanel
-        backtest={riskBacktest}
-        portfolio={riskBacktestPortfolio}
-        portfolioError={backtestPortfolioError}
-        driftMonitor={riskDriftMonitor}
-        driftError={riskDriftError}
-        loading={backtestLoading}
-        error={backtestError}
-        unavailable={selectedId === "gold"}
-        onSelectCoin={setSelectedId}
       />
 
       <AlertCenter

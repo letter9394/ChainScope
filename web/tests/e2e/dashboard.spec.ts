@@ -280,31 +280,18 @@ test("keeps the native gold fallback usable across timeframes", async ({ page })
   await expect(page.getByText("Application error", { exact: false })).toHaveCount(0);
 });
 
-test("shows base-rate lift and walk-forward validation", async ({ page }) => {
-  await expect(page.getByRole("heading", { name: "跨资产晋级审查" })).toBeVisible();
-  await expect(page.getByText("跨资产暂不晋级", { exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "模型有效性" })).toBeVisible();
-  await expect(page.getByText("1.94×", { exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Walk-forward 滚动验证" })).toBeVisible();
-  await expect(page.getByRole("cell", { name: "第 3 轮", exact: true }).first()).toBeVisible();
-  await expect(page.getByRole("heading", { name: "v0.4 特征模型实验" })).toBeVisible();
-  await expect(page.getByText("单资产候选通过", { exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "v0.5 标签与概率校准实验" })).toBeVisible();
-  await expect(page.getByText("2.60× Lift", { exact: true })).toBeVisible();
-  await expect(page.getByText("1.18–3.92", { exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "v0.6 跨周期稳定性审查" })).toBeVisible();
-  await expect(page.getByText("跨周期结果不稳定", { exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "v0.7 时间稳定性与漂移监控" })).toBeVisible();
-  await expect(page.getByText("检测到性能衰减", { exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "v0.8 模型漂移告警闭环" })).toBeVisible();
-  await expect(page.getByText("BTC 模型检测到性能衰减", { exact: true })).toBeVisible();
-  await expect(page.locator("section.backtest-drift-monitor .backtest-walk-summary strong").filter({ hasText: "0.73×" })).toBeVisible();
-});
-
-test("switches backtest assets from the cross-asset review", async ({ page }) => {
-  await page.getByRole("button", { name: "查看 ETH 回测" }).click();
-  await expect(page.getByRole("heading", { name: "ETH 高风险信号回测" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /ETH Ethereum/ })).toHaveClass(/active/);
+test("keeps research panels and their API requests off the user dashboard", async ({ page }) => {
+  const researchRequests: string[] = [];
+  page.on("request", (request) => {
+    if (/^\/api\/(risk\/(backtests|drift)|coins\/[^/]+\/risk\/backtest)$/.test(new URL(request.url()).pathname)) {
+      researchRequests.push(request.url());
+    }
+  });
+  await page.reload();
+  await expect(page.getByRole("heading", { name: "Bitcoin K线图" })).toBeVisible();
+  await expect(page.locator("#risk-backtest")).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "风险预警中心" })).toBeVisible();
+  expect(researchRequests).toEqual([]);
 });
 
 test("attaches a CSRF token before account registration", async ({ page }) => {

@@ -2,11 +2,11 @@
 
 > 在线演示：[chainscope-web3.onrender.com](https://chainscope-web3.onrender.com/) · 源码：[GitHub](https://github.com/letter9394/ChainScope)
 
-ChainScope 是一个面向加密资产与黄金市场的全栈风险分析平台。它不只展示价格，而是把多源行情、专业 K 线、衍生品指标、新闻情绪、可解释风险评分、历史回测和用户预警串成一条完整的数据产品链路。
+ChainScope 是一个面向加密资产与黄金市场的全栈风险分析平台。用户首页聚焦多源行情、专业 K 线、衍生品指标、新闻情绪、可解释风险评分和个人预警；历史回测留在后台研究层，不作为普通用户的交易信号。
 
 ## 一句话项目介绍
 
-使用 Next.js、React、FastAPI 与 PostgreSQL 构建的市场风险仪表盘：实时跟踪 BTC、ETH、SOL 与 XAU，提供多周期 K 线、可解释风险模型、1/3/7 日历史信号回测，以及带邮箱验证和邮件通知的多用户预警系统。
+使用 Next.js、React、FastAPI 与 PostgreSQL 构建的市场风险仪表盘：实时跟踪 BTC、ETH、SOL 与 XAU，提供多周期 K 线、可解释风险评分，以及带邮箱验证和邮件通知的多用户预警系统。历史信号回测作为独立后台研究能力保留。
 
 ## 线上架构
 
@@ -130,7 +130,7 @@ v0.8 再把这项诊断连接成运行闭环：后台在启动后和服务在线
 | 指标 | 当前结果 | 验证方式 |
 | --- | ---: | --- |
 | 后端自动化测试 | 119 项通过 | `pytest backend/tests -q`；[2026-10-15 CI](https://github.com/letter9394/ChainScope/actions/runs/38699753798) |
-| 浏览器端到端测试 | 14 个流程通过 | Playwright；[同次 CI](https://github.com/letter9394/ChainScope/actions/runs/38699753798) |
+| 浏览器端到端测试 | 13 个流程通过 | Playwright；发布后以当前提交 CI 为准 |
 | API 路由 | 30 个 | FastAPI 路由定义 |
 | K 线周期 | 8 种 | 1m、5m、15m、30m、1h、4h、1d、1w |
 | 监控资产 | 4 类 | BTC、ETH、SOL、XAU |
@@ -155,12 +155,12 @@ v0.8 再把这项诊断连接成运行闭环：后台在启动后和服务在线
 
 - 基于 Next.js 15、React 19、FastAPI 与 PostgreSQL 独立开发 ChainScope 市场风险平台，整合 Binance、CoinGecko、Gold API、Massive 和 CoinDesk 等多源数据，支持 4 类资产与 8 种 K 线周期。
 - 设计可解释风险模型与 3 年历史信号回测，结合市场基准/Lift、精确率/召回率、市场阶段和带隔离期的 Walk-forward，验证高风险信号后未来 1/3/7 日表现。
-- 实现多用户预警、邮箱验证、Brevo 邮件、状态迁移去重、限流和 CSRF 防护；建立 119 项 Pytest 与 14 个 Playwright E2E 流程，完成 Neon 数据迁移、每日加密备份及隔离恢复验证。
+- 实现多用户预警、邮箱验证、Brevo 邮件、状态迁移去重、限流和 CSRF 防护；建立 119 项 Pytest 与 13 个 Playwright E2E 流程，完成 Neon 数据迁移、每日加密备份及隔离恢复验证。
 
 ### 面试展开顺序
 
 1. 先演示多源行情和 K 线，说明为什么黄金需要区分四种价格口径。
-2. 再演示风险分项和历史回测，强调模型可解释、无前视数据。
+2. 再演示风险分项和市场背景，说明评分依据及其局限。
 3. 创建一条容易触发的规则，展示“只在首次越线通知”的状态机。
 4. 最后打开 `/api/health`，说明如何确认数据库、调度器、邮件和部署版本都正常。
 
@@ -179,14 +179,6 @@ v0.8 再把这项诊断连接成运行闭环：后台在启动后和服务在线
 ### 实时衍生品风险
 
 ![ChainScope 衍生品面板](assets/derivatives-risk.png)
-
-### 风险信号历史回测
-
-![ChainScope 风险回测](assets/risk-backtest.png)
-
-### 移动端跨资产回测
-
-![ChainScope 移动端跨资产回测](assets/risk-backtest-mobile.png)
 
 ## 已知边界与下一步
 
